@@ -610,6 +610,19 @@ class HookConfigResolver:
         self._destinations = None
 
     @property
+    def raw_destination_names(self) -> set[str]:
+        """Names in the RAW destinations block, before validation drops any.
+
+        ``validate_destinations()`` silently omits a destination it rejects as
+        misconfigured (missing url, unusable api_key, ...). Comparing this set
+        against the validated one is how a caller distinguishes "dropped as
+        misconfigured" from "absent for some other reason" -- without that,
+        a single unexpanded ``${VAR}`` looks like a stale ingestion filter.
+        """
+        raw = self._config.get("destinations")
+        return set(raw) if isinstance(raw, dict) else set()
+
+    @property
     def destinations(self) -> dict[str, Destination]:
         """Resolved fan-out destinations, keyed by name.
 

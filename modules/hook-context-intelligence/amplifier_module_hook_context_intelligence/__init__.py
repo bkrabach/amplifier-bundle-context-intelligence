@@ -248,7 +248,11 @@ def _disk_exclude_map(raw: dict[str, Any]) -> dict[str, list[str]]:
     return out
 
 
-def _compare_exclude_maps(live: dict[str, list[str]], disk: dict[str, list[str]]) -> dict[str, Any]:
+def _compare_exclude_maps(
+    live: dict[str, list[str]],
+    disk: dict[str, list[str]],
+    dropped: set[str] | None = None,
+) -> dict[str, Any]:
     """Compare live vs on-disk excludes over the destinations the FILE declares.
 
     Why not set equality: the live filter comes from the kernel's *merged*
@@ -265,21 +269,36 @@ def _compare_exclude_maps(live: dict[str, list[str]], disk: dict[str, list[str]]
     ignored either: they are returned in ``unverified`` so the caller can see
     exactly which destinations this file could not speak for.
 
-    Returns {consistent, mismatched, missing_live, unverified, live, disk}.
+    ``dropped`` is the set of destinations that validation REJECTED as
+    misconfigured (missing url, unusable api_key, ...). Those are absent from
+    the live filter for a reason that has nothing to do with the exclude
+    filter, so counting them as a filter inconsistency is a false alarm --
+    and an easy one to trigger, since a single unexpanded ``${VAR}`` is
+    enough. They are reported under ``dropped_by_validation`` and excluded
+    from the consistent/inconsistent decision.
+
+    Returns {consistent, mismatched, missing_live, dropped_by_validation,
+    unverified, live, disk}.
     """
+    dropped = dropped or set()
     mismatched = {
         name: {"live": live.get(name), "disk": patterns}
         for name, patterns in disk.items()
         if name in live and live[name] != patterns
     }
-    # Declared on disk but absent from the live filter entirely.
-    missing_live = sorted(name for name in disk if name not in live)
+    # Declared on disk, absent from the live filter, and NOT explained by
+    # validation dropping it -- this is the case where the filter may be stale.
+    missing_live = sorted(name for name in disk if name not in live and name not in dropped)
+    # Declared on disk but rejected by validation: a destination-config problem,
+    # not a filter problem. Surfaced, but never a consistency fault.
+    dropped_by_validation = sorted(name for name in disk if name not in live and name in dropped)
     # Live destinations this file cannot speak for (declared in another scope).
     unverified = sorted(name for name in live if name not in disk)
     return {
         "consistent": not mismatched and not missing_live,
         "mismatched": mismatched,
         "missing_live": missing_live,
+        "dropped_by_validation": dropped_by_validation,
         "unverified": unverified,
         "live": live,
         "disk": disk,
@@ -394,6 +413,7 @@ async def mount(
             check = _compare_exclude_maps(
                 _exclude_map(new_dests),
                 _disk_exclude_map(_read_destinations_from_settings(settings_path)),
+                dropped=set(new_raw) - set(new_dests),
             )
             report["disk_consistent"] = check["consistent"]
             report["disk_check"] = check
@@ -421,9 +441,11 @@ async def mount(
         declared in another scope. Those are returned in ``unverified`` rather
         than treated as a fault -- see ``_compare_exclude_maps``.
         """
+        _validated = resolver.validate_destinations()
         check = _compare_exclude_maps(
-            _exclude_map(resolver.validate_destinations()),
+            _exclude_map(_validated),
             _disk_exclude_map(_read_destinations_from_settings(settings_path)),
+            dropped=resolver.raw_destination_names - set(_validated),
         )
         if not check["consistent"]:
             raise RuntimeError(

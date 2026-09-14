@@ -525,3 +525,91 @@ class TestDiskCheckIsReportedNotRaised:
             assert result["unverified"] == ["d2"]
         finally:
             await cleanup()
+
+
+# ---------------------------------------------------------------------------
+# G. Regression: a destination validation DROPPED as misconfigured is not a
+#    filter inconsistency.  (ci_delete_fixes-9fw)
+#
+#    Measured in a real session: mismatched={} yet consistent=false, purely
+#    because two misconfigured destinations ("missing url; api_key is unusable")
+#    were absent from the live filter. That is a destination-config problem, not
+#    a stale exclude -- and one unexpanded ${VAR} is enough to trigger it.
+# ---------------------------------------------------------------------------
+class TestDroppedDestinationIsNotAFilterFault:
+    async def test_misconfigured_destination_does_not_make_the_filter_inconsistent(
+        self, tmp_path: Path
+    ) -> None:
+        working_dir = str(tmp_path)
+        settings_path = tmp_path / "settings.yaml"
+        # The file declares a good destination AND a broken one (no url).
+        settings_path.write_text(
+            yaml.safe_dump(
+                {
+                    "overrides": {
+                        "hook-context-intelligence": {
+                            "config": {
+                                "destinations": {
+                                    "good": {
+                                        "url": "http://good",
+                                        "api_key": "k",
+                                        "include": ["**"],
+                                        "exclude": ["**"],
+                                    },
+                                    "broken": {"api_key": "k", "include": ["**"], "exclude": []},
+                                }
+                            }
+                        }
+                    }
+                }
+            )
+        )
+        config = {
+            "destinations": {
+                "good": {"url": "http://good", "api_key": "k", "include": ["**"], "exclude": []},
+            }
+        }
+        coordinator = make_lifecycle_coordinator(working_dir=working_dir)
+        cleanup = await mount_and_ready(coordinator, config)
+        try:
+            set_filters = coordinator.get_capability("context_intelligence.set_ingestion_filters")
+            new_raw = {
+                "good": {
+                    "url": "http://good",
+                    "api_key": "k",
+                    "include": ["**"],
+                    "exclude": ["**"],
+                },
+                "broken": {"api_key": "k", "include": ["**"], "exclude": []},  # no url -> dropped
+            }
+            report = await set_filters(
+                raw_destinations=new_raw,
+                settings_path=str(settings_path),
+                verify_disk=True,
+            )
+
+            check = report["disk_check"]
+            assert check["mismatched"] == {}
+            # 'broken' is absent from live because validation rejected it --
+            # reported under its own key, and NOT a consistency fault.
+            assert check["dropped_by_validation"] == ["broken"]
+            assert check["missing_live"] == []
+            assert report["disk_consistent"] is True
+        finally:
+            await cleanup()
+
+    async def test_genuinely_absent_destination_still_reports_inconsistent(
+        self, tmp_path: Path
+    ) -> None:
+        """The fix must not blunt the real case: declared on disk, valid, but
+        simply not in the live filter."""
+        from amplifier_module_hook_context_intelligence import _compare_exclude_maps
+
+        check = _compare_exclude_maps(
+            live={"good": []},
+            disk={"good": [], "absent": ["**"]},
+            dropped=set(),  # nothing was dropped by validation
+        )
+        assert check["missing_live"] == ["absent"]
+        assert check["dropped_by_validation"] == []
+        assert check["consistent"] is False
