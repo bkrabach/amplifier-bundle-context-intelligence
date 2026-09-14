@@ -50,6 +50,12 @@ except ImportError:
 
 _CI_BLOB_SCHEME = "ci-blob://"
 
+# The route whose presence proves a server can answer "is this session here?".
+# Probed via /openapi.json by supports_session_deletion(): a server that predates
+# the deletion router answers 404 to this path, which is indistinguishable from
+# "session not found" unless we check whether the route exists at all.
+_SESSION_SUMMARY_ROUTE = "/sessions/{session_id}/summary"
+
 
 class CIClientError(Exception):
     """A context-intelligence HTTP request genuinely failed (not an empty result).
@@ -1199,6 +1205,45 @@ class AsyncCIClient:
             raise CIClientError(
                 f"connection error to {url}: {exc}", error_type="connection_error", url=url
             ) from exc
+
+    async def supports_session_deletion(self) -> bool | None:
+        """Does this server actually expose the session-deletion endpoints?
+
+        WHY THIS EXISTS: ``GET /sessions/{id}/summary`` answers ``404`` two ways
+        that are byte-identical -- "this session is not on this server", and
+        "this server is too old to have that route at all". Treating the second
+        as the first makes the delete flow report a server CLEAN while it still
+        holds the data: a silent false-negative on a data-removal guarantee.
+
+        This is a CAPABILITY probe, not a version comparison: it reads the
+        server's own ``/openapi.json`` and asks whether the route is published.
+        That is exact, and it needs no minimum-version constant to drift.
+
+        Returns
+        -------
+        bool | None
+            ``True``  -- the route is published; a 404 means the session is absent.
+            ``False`` -- the route is absent; a 404 proves nothing about the data.
+            ``None``  -- could not determine (unreachable, gateway rejected the
+            probe, malformed schema). Callers MUST treat ``None`` exactly like
+            ``False`` and refuse to attest absence -- assuming "fine" here
+            reintroduces the same false-negative one layer up. Note a gateway
+            (e.g. Azure APIM) can reject this probe even though the app itself
+            publishes ``/openapi.json`` unauthenticated.
+        """
+        url = f"{self._server_url}/openapi.json"
+        headers = self._auth_headers(url)
+        try:
+            async with httpx.AsyncClient(timeout=self._timeout) as client:  # type: ignore[union-attr]
+                resp = await client.get(url, headers=headers)
+                resp.raise_for_status()
+                schema = resp.json()
+        except Exception:  # noqa: BLE001 - any failure is "unknown", never "supported"
+            return None
+        paths = schema.get("paths") if isinstance(schema, dict) else None
+        if not isinstance(paths, dict):
+            return None
+        return _SESSION_SUMMARY_ROUTE in paths
 
     async def health_check(self) -> dict[str, Any]:
         """Check server health by running a simple count query (async).
