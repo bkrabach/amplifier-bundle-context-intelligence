@@ -441,3 +441,87 @@ class TestSessionSummaryServerErrors:
         assert result.error["type"] == "http_status"
         assert result.error["status_code"] == 409
         assert "still receiving data" in result.error["message"]
+
+
+# ---------------------------------------------------------------------------
+# TestSessionSummary404IsNotProofOfAbsence  (ci_delete_fixes-tiq)
+#
+# A 404 from GET /sessions/{id}/summary is ambiguous: the session may be absent,
+# OR the server may predate the deletion router and 404 every such request. The
+# two are byte-identical. Reading the second as the first reports a server CLEAN
+# while it still holds the data -- a silent false-negative on a data-REMOVAL
+# guarantee. Measured: the same session 404'd on 6.7.6 and returned 200 with
+# 13,987 nodes on 6.9.1.
+# ---------------------------------------------------------------------------
+
+
+def _summary_404_client(supports: bool | None):
+    """AsyncCIClient double whose summary 404s and whose capability probe is fixed."""
+    from context_intelligence.client import CIClientError
+
+    mock_instance = AsyncMock()
+    mock_instance.session_summary = AsyncMock(
+        side_effect=CIClientError(
+            "HTTP 404 from http://ci-server:9000/sessions/s1/summary",
+            error_type="http_status",
+            url="http://ci-server:9000/sessions/s1/summary",
+            status_code=404,
+        )
+    )
+    mock_instance.supports_session_deletion = AsyncMock(return_value=supports)
+    return MagicMock(return_value=mock_instance)
+
+
+class TestSessionSummary404IsNotProofOfAbsence:
+    async def test_old_server_404_is_reported_unverifiable_not_absent(self) -> None:
+        from amplifier_module_tool_server_data_ops.session_summary_tool import SessionSummaryTool
+
+        tool = SessionSummaryTool(_make_coordinator(resolver=_make_hook_resolver()))
+        with patch(
+            "amplifier_module_tool_server_data_ops.session_summary_tool.AsyncCIClient",
+            _summary_404_client(supports=False),
+        ):
+            result = await tool.execute({"session_id": "s1"})
+
+        assert result.success is False
+        assert result.error["verifiable"] is False
+        assert result.error["server_supports_deletion"] is False
+        assert "CANNOT VERIFY" in result.error["message"]
+        # The old wording asserted absence -- it must not come back.
+        assert "unknown session" not in result.error["message"]
+
+    async def test_undeterminable_capability_also_refuses_to_attest_absence(self) -> None:
+        """Gateway rejected the probe / server unreachable -> fail CLOSED.
+
+        Treating "could not determine" as "assume fine" reintroduces the same
+        false-negative one layer up.
+        """
+        from amplifier_module_tool_server_data_ops.session_summary_tool import SessionSummaryTool
+
+        tool = SessionSummaryTool(_make_coordinator(resolver=_make_hook_resolver()))
+        with patch(
+            "amplifier_module_tool_server_data_ops.session_summary_tool.AsyncCIClient",
+            _summary_404_client(supports=None),
+        ):
+            result = await tool.execute({"session_id": "s1"})
+
+        assert result.success is False
+        assert result.error["verifiable"] is False
+        assert result.error["server_supports_deletion"] is None
+        assert "CANNOT VERIFY" in result.error["message"]
+        assert "unknown session" not in result.error["message"]
+
+    async def test_capable_server_404_still_means_absent(self) -> None:
+        """The fix must not blunt a genuine 404 on a server that DOES have the route."""
+        from amplifier_module_tool_server_data_ops.session_summary_tool import SessionSummaryTool
+
+        tool = SessionSummaryTool(_make_coordinator(resolver=_make_hook_resolver()))
+        with patch(
+            "amplifier_module_tool_server_data_ops.session_summary_tool.AsyncCIClient",
+            _summary_404_client(supports=True),
+        ):
+            result = await tool.execute({"session_id": "s1"})
+
+        assert result.success is False
+        assert "unknown session" in result.error["message"]
+        assert "verifiable" not in result.error

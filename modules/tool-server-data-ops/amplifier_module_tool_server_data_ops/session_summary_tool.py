@@ -169,8 +169,32 @@ class SessionSummaryTool:
             # also set output= here or that back-fill is suppressed.
             origin_name = conn.origin.name if conn.origin and conn.origin.name else conn.url
             message = f"session lookup failed against {origin_name}: {exc}"
+            extra: dict[str, Any] = {}
             if exc.status_code == 404:
-                message = f"unknown session {session_id!r} on {origin_name}"
+                # A 404 here is ambiguous: either the session really is not on
+                # this server, OR this server predates the deletion router and
+                # has no such route. Reading the second as the first reports a
+                # server CLEAN while it still holds the data -- a silent
+                # false-negative on a data-REMOVAL guarantee. Ask the server
+                # whether it publishes the route before asserting absence.
+                supported = await async_client.supports_session_deletion()
+                if supported:
+                    message = f"unknown session {session_id!r} on {origin_name}"
+                else:
+                    reason = (
+                        "it does not expose the session-deletion endpoints "
+                        "(server predates that feature)"
+                        if supported is False
+                        else "its capabilities could not be determined "
+                        "(unreachable, or a gateway rejected the probe)"
+                    )
+                    message = (
+                        f"CANNOT VERIFY whether session {session_id!r} is on "
+                        f"{origin_name}: {reason}. Its 404 does NOT mean the data "
+                        f"is absent. Do NOT report {origin_name} as clean -- "
+                        "report it as unverified."
+                    )
+                    extra = {"verifiable": False, "server_supports_deletion": supported}
             elif exc.status_code == 409:
                 message = (
                     f"session {session_id!r} on {origin_name} is still receiving data, "
@@ -183,6 +207,7 @@ class SessionSummaryTool:
                     "type": exc.error_type,  # connection_error|timeout|http_status|decode_error
                     "source": _origin_dict(conn.origin),
                     **({"status_code": exc.status_code} if exc.status_code is not None else {}),
+                    **extra,
                 },
             )
         return ToolResult(

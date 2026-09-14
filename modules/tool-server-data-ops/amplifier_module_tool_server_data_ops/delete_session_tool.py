@@ -190,7 +190,27 @@ class DeleteSessionTool:
                 origin_name = conn.origin.name if conn.origin and conn.origin.name else conn.url
                 message = f"delete failed against {origin_name}: {exc}"
                 if exc.status_code == 404:
-                    message = f"unknown session {session_id!r} on {origin_name}"
+                    # Ambiguous, exactly as in session_summary_tool: either the
+                    # session is genuinely absent, or this server has no
+                    # deletion route at all and 404s every such request. The
+                    # second must never be reported as "already gone".
+                    supported = await async_client.supports_session_deletion()
+                    if supported:
+                        message = f"unknown session {session_id!r} on {origin_name}"
+                    else:
+                        reason = (
+                            "it does not expose the session-deletion endpoints "
+                            "(server predates that feature)"
+                            if supported is False
+                            else "its capabilities could not be determined "
+                            "(unreachable, or a gateway rejected the probe)"
+                        )
+                        message = (
+                            f"CANNOT DELETE from {origin_name} and CANNOT VERIFY "
+                            f"whether session {session_id!r} is there: {reason}. "
+                            "Its 404 does NOT mean the data is absent. Do NOT "
+                            f"report {origin_name} as clean or as already deleted."
+                        )
                 elif exc.status_code == 409 and exc.retry_after is not None:
                     message = (
                         f"session {session_id!r} on {origin_name} is still receiving "

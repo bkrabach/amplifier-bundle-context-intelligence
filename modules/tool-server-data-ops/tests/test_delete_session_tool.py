@@ -521,3 +521,56 @@ class TestDeleteSessionServerErrors:
         assert result.success is True
         assert result.output["result"] == {"root_id": "live", "nodes_deleted": 3}
         assert mock_instance.delete_session.await_count == 2
+
+
+# ---------------------------------------------------------------------------
+# TestDelete404IsNotProofOfAbsence  (ci_delete_fixes-tiq)
+#
+# DELETE /sessions/{id} 404s on a server that has no deletion route at all,
+# identically to "that session isn't here". Reporting the first as "already
+# gone" tells the user their data is removed from a server that still holds it.
+# ---------------------------------------------------------------------------
+class TestDelete404IsNotProofOfAbsence:
+    def _client(self, supports: bool | None):
+        from context_intelligence.client import CIClientError
+
+        err = CIClientError(
+            "HTTP 404 from http://ci-server:9000/sessions/s1",
+            error_type="http_status",
+            url="http://ci-server:9000/sessions/s1",
+            status_code=404,
+        )
+        # Set explicitly: this module installs context_intelligence from git
+        # main, and that pinned copy may predate the retry_after attribute.
+        err.retry_after = None
+        inst = AsyncMock()
+        inst.delete_session = AsyncMock(side_effect=err)
+        inst.supports_session_deletion = AsyncMock(return_value=supports)
+        return MagicMock(return_value=inst)
+
+    async def test_old_server_404_is_not_reported_as_already_deleted(self) -> None:
+        from amplifier_module_tool_server_data_ops.delete_session_tool import DeleteSessionTool
+
+        tool = DeleteSessionTool(_make_coordinator(resolver=_make_hook_resolver()))
+        with patch(
+            "amplifier_module_tool_server_data_ops.delete_session_tool.AsyncCIClient",
+            self._client(supports=False),
+        ):
+            result = await tool.execute({"session_id": "s1", "confirm": True})
+
+        assert result.success is False
+        assert "CANNOT VERIFY" in result.error["message"]
+        assert "unknown session" not in result.error["message"]
+
+    async def test_capable_server_404_still_means_absent(self) -> None:
+        from amplifier_module_tool_server_data_ops.delete_session_tool import DeleteSessionTool
+
+        tool = DeleteSessionTool(_make_coordinator(resolver=_make_hook_resolver()))
+        with patch(
+            "amplifier_module_tool_server_data_ops.delete_session_tool.AsyncCIClient",
+            self._client(supports=True),
+        ):
+            result = await tool.execute({"session_id": "s1", "confirm": True})
+
+        assert result.success is False
+        assert "unknown session" in result.error["message"]
