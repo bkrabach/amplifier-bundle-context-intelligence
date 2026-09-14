@@ -25,6 +25,29 @@ from context_intelligence.tool_resolver import (
 )
 
 
+async def _probe_deletion_support(client: Any) -> bool | None:
+    """Ask the client whether the server publishes the deletion routes.
+
+    Version-safe on purpose. ``tool-server-data-ops`` pins the client library to
+    ``amplifier-bundle-context-intelligence @ git+...@main``, so a deployment can
+    legitimately be running a client that predates
+    ``supports_session_deletion()``. Calling it unconditionally would raise
+    AttributeError on the 404 path -- turning a fail-closed design into a crash,
+    and making correctness depend on humans landing two repos in the right order.
+
+    A client too old to answer is exactly the "cannot determine" case, so it
+    returns ``None`` and the caller refuses to attest absence, same as any other
+    undeterminable result.
+    """
+    probe = getattr(client, "supports_session_deletion", None)
+    if probe is None:
+        return None
+    try:
+        return await probe()
+    except Exception:  # noqa: BLE001 - any probe failure is "unknown", never "supported"
+        return None
+
+
 class DeleteSessionTool:
     """Permanently delete one session's whole graph from the context-intelligence server.
 
@@ -194,7 +217,7 @@ class DeleteSessionTool:
                     # session is genuinely absent, or this server has no
                     # deletion route at all and 404s every such request. The
                     # second must never be reported as "already gone".
-                    supported = await async_client.supports_session_deletion()
+                    supported = await _probe_deletion_support(async_client)
                     if supported:
                         message = f"unknown session {session_id!r} on {origin_name}"
                     else:

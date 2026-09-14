@@ -525,3 +525,44 @@ class TestSessionSummary404IsNotProofOfAbsence:
         assert result.success is False
         assert "unknown session" in result.error["message"]
         assert "verifiable" not in result.error
+
+
+class TestProbeIsVersionSafe:
+    """An OLD client (no supports_session_deletion) must not crash the 404 path.
+
+    tool-server-data-ops pins the client library to git main, so a deployment can
+    legitimately run a client that predates the probe. Calling it unconditionally
+    would raise AttributeError -- turning a fail-closed design into a crash and
+    making correctness depend on two repos landing in the right order.
+    """
+
+    async def test_old_client_without_the_probe_degrades_to_unverifiable(self) -> None:
+        from context_intelligence.client import CIClientError
+
+        from amplifier_module_tool_server_data_ops.session_summary_tool import SessionSummaryTool
+
+        class _OldClient:
+            """No supports_session_deletion attribute at all."""
+
+            def __init__(self, **kw: Any) -> None: ...
+
+            async def session_summary(self, session_id: str):
+                raise CIClientError(
+                    "HTTP 404 from http://ci-server:9000/sessions/s1/summary",
+                    error_type="http_status",
+                    url="http://ci-server:9000/sessions/s1/summary",
+                    status_code=404,
+                )
+
+        tool = SessionSummaryTool(_make_coordinator(resolver=_make_hook_resolver()))
+        with patch(
+            "amplifier_module_tool_server_data_ops.session_summary_tool.AsyncCIClient",
+            _OldClient,
+        ):
+            result = await tool.execute({"session_id": "s1"})
+
+        assert result.success is False
+        # No AttributeError, and it fails CLOSED rather than asserting absence.
+        assert result.error["verifiable"] is False
+        assert result.error["server_supports_deletion"] is None
+        assert "CANNOT VERIFY" in result.error["message"]
