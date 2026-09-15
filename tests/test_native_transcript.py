@@ -120,6 +120,23 @@ def test_reports_an_oversized_unrelated_event_without_parsing_it(tmp_path) -> No
     assert [message.content for message in page.messages] == ["one", "two"]
 
 
+def test_reports_an_unterminated_oversized_final_line_once_and_stops(tmp_path) -> None:
+    locator = _capture(
+        tmp_path,
+        [_event("prompt:submit", "2026-09-15T10:00:00Z", prompt="one")],
+    )
+    unterminated_event = b'{"event":"llm:response","data":{"raw":"' + b"x" * 1_000_000
+    locator.events_path.write_bytes(
+        locator.events_path.read_bytes() + unterminated_event
+    )
+
+    page = read_native_transcript(locator)
+
+    assert page.status == "partial"
+    assert [issue.code for issue in page.issues] == ["event_too_large_or_invalid_encoding"]
+    assert [message.content for message in page.messages] == ["one"]
+
+
 def test_rejects_unknown_capture_schema_before_reading_events(tmp_path) -> None:
     locator = _capture(
         tmp_path,

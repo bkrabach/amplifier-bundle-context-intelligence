@@ -176,6 +176,9 @@ def _iter_bounded_event_lines(events_path: Path):
             if len(raw_line) > _MAX_EVENT_BYTES:
                 while not raw_line.endswith(b"\n"):
                     raw_line = event_file.readline(_MAX_EVENT_BYTES + 1)
+                    if not raw_line:
+                        yield line_number, None
+                        return
                 yield line_number, None
                 continue
             try:
