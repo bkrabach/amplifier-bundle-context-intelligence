@@ -1212,6 +1212,11 @@ class AsyncCIClient:
                 error_type="http_status",
                 url=url,
                 status_code=exc.response.status_code,
+                # The server answers a still-draining delete with 409 + Retry-After.
+                # Dropping it here silently disables the tool's automatic retry
+                # loop -- the transient "wait for the drain" case then gets
+                # reported as the NON-retryable ambiguous-id case instead.
+                retry_after=_retry_after_seconds(exc.response.headers),
                 error_body=_body,
                 error_code=_code,
             ) from exc
