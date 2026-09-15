@@ -9,7 +9,7 @@ dependencies = [
     "azure-identity>=1.19",
     "httpx>=0.28.1",
     "idna>=3.15",
-    "amplifier-module-hook-context-intelligence",
+    "amplifier-module-hook-context-intelligence @ git+https://github.com/microsoft/amplifier-bundle-context-intelligence@main#subdirectory=modules/hook-context-intelligence",
     "pyyaml>=6.0",
 ]
 
@@ -38,11 +38,6 @@ dev = [
     "ruff>=0.4",
     "types-pyyaml>=6.0",
 ]
-
-[tool.uv.sources]
-# The bundle is declared as a PEP 508 direct git reference in [project.dependencies]
-# (survives `uv pip install --no-sources`); it is intentionally NOT a path source here.
-amplifier-module-hook-context-intelligence = { path = "../hook-context-intelligence", editable = true }
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

@@ -127,8 +127,8 @@ class TestDependencyGroups:
         assert any("ruff>=" in d for d in dev)
 
 
-class TestUVSources:
-    """Validate [tool.uv.sources] configuration."""
+class TestStandaloneHookDependency:
+    """The sibling hook must resolve during `amplifier update --no-sources`."""
 
     def test_no_amplifier_core_in_uv_sources(self):
         """amplifier-core must NOT be in [tool.uv.sources] after wrapper removal."""
@@ -138,11 +138,19 @@ class TestUVSources:
             "amplifier-core must be removed from uv sources — no longer a dependency"
         )
 
-    def test_hook_module_source_is_editable_local(self):
+    def test_hook_module_is_a_direct_git_reference(self):
         data = _load()
-        source = data["tool"]["uv"]["sources"]["amplifier-module-hook-context-intelligence"]
-        assert source.get("editable") is True
-        assert "hook-context-intelligence" in source.get("path", "")
+        deps = data["project"]["dependencies"]
+        hook_dep = next(
+            dep for dep in deps if dep.startswith("amplifier-module-hook-context-intelligence")
+        )
+        assert " @ git+https://" in hook_dep
+        assert "#subdirectory=modules/hook-context-intelligence" in hook_dep
+
+    def test_hook_module_is_not_a_uv_path_source(self):
+        data = _load()
+        sources = data.get("tool", {}).get("uv", {}).get("sources", {})
+        assert "amplifier-module-hook-context-intelligence" not in sources
 
 
 class TestPytestConfig:
