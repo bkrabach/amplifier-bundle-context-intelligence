@@ -11,6 +11,9 @@ compatibility: Amplifier with the session_transcript tool mounted
 
 Use `session_transcript`; never read `events.jsonl` directly.
 
+> **Sensitive content:** stored captures are replayed verbatim and can contain
+> sensitive content. The logging hook's JSON sanitization is not redaction.
+
 Interpret `$ARGUMENTS` as follows:
 
 - **No arguments:** call `session_transcript` with no `session_ids`. Return the

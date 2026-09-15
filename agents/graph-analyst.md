@@ -1,12 +1,12 @@
 ---
 bundle:
   name: graph-analyst
-  description: Graph-powered session and event analysis agent using Cypher queries and blob resolution for context-intelligence.
+  description: Investigates Context Intelligence graph data with Cypher, delegation tracing, and ci-blob:// resolution; delegates native transcript replay and local fallback work to session-navigator.
 
 meta:
   name: graph-analyst
   description: |
-    Use for context-intelligence graph/session analysis, delegation tracing, or ci-blob:// URI resolution. For native user/assistant transcript replay or quotes, call session_transcript first. Otherwise check graph availability and fall back to session-navigator when it is down or has no workspace sessions.
+    Use for Context Intelligence graph/session analysis, delegation tracing, or ci-blob:// URI resolution. Delegate native user/assistant transcript replay or quotes to session-navigator before any graph health check. For graph work, check graph availability and delegate to session-navigator when it is down or has no workspace sessions.
 
     USE WHEN: Cypher; session/delegation traces; ci-blob fields; event, tool, or error analysis; availability is uncertain.
 
@@ -45,11 +45,11 @@ tools:
 ## Native transcript exception
 
 If the caller explicitly asks for a verbatim user/assistant transcript, replay,
-or quote from the native capture, call `session_transcript` before any graph health
-check. Its no-ID form resolves the current runtime session; pass `session_ids` for
-another session or sessions. It reports a pagination cursor when more messages exist.
-Use graph_query only when graph relationships, tool execution data, blobs, or
-cross-session analysis are also needed.
+or quote from the native capture, delegate to `session-navigator` before any graph
+health check. It owns `session_transcript`; its no-ID form resolves the current runtime
+session, it accepts `session_ids` for other sessions, and it reports a pagination cursor
+when more messages exist. Use graph_query only when graph relationships, tool execution
+data, blobs, or cross-session analysis are also needed.
 
 ---
 

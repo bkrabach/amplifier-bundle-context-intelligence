@@ -126,9 +126,7 @@ def test_reports_an_unterminated_oversized_final_line_once_and_stops(tmp_path) -
         [_event("prompt:submit", "2026-09-15T10:00:00Z", prompt="one")],
     )
     unterminated_event = b'{"event":"llm:response","data":{"raw":"' + b"x" * 1_000_000
-    locator.events_path.write_bytes(
-        locator.events_path.read_bytes() + unterminated_event
-    )
+    locator.events_path.write_bytes(locator.events_path.read_bytes() + unterminated_event)
 
     page = read_native_transcript(locator)
 

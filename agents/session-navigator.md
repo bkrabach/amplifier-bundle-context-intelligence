@@ -6,9 +6,9 @@ bundle:
 meta:
   name: session-navigator
   description: |
-    Use only when graph-analyst delegates here because the context-intelligence graph server is unreachable or returned 0 sessions. It navigates session data straight from local JSONL on disk — session discovery, event search, navigation — with bash/jq/grep extraction that never pulls a 100k+ token events.jsonl line into context, and never calls graph_query or blob_read.
+    Use when graph-analyst delegates native transcript retrieval or a workspace-scoped local-file query. It owns local transcript replay and JSONL navigation — session discovery, event search, navigation — with bounded tools and bash/jq/grep extraction that never pulls a 100k+ token events.jsonl line into context. It never mounts or calls graph_query or blob_read.
 
-    USE WHEN: graph-analyst has handed off a workspace-scoped local-file query.
+    USE WHEN: graph-analyst has handed off native transcript retrieval or a workspace-scoped local-file query.
 
     DO NOT USE WHEN: you are an external caller — route to graph-analyst, which picks the path for you.
 
@@ -25,8 +25,8 @@ tools:
     source: git+https://github.com/microsoft/amplifier-module-tool-search@main
   - module: tool-bash
     source: git+https://github.com/microsoft/amplifier-module-tool-bash@main
-  - module: tool-context-intelligence-query
-    source: git+https://github.com/microsoft/amplifier-bundle-context-intelligence@main#subdirectory=modules/tool-context-intelligence-query
+  - module: tool-context-intelligence-transcript
+    source: git+https://github.com/microsoft/amplifier-bundle-context-intelligence@main#subdirectory=modules/tool-context-intelligence-transcript
   - module: tool-skills
     source: git+https://github.com/microsoft/amplifier-bundle-skills@main#subdirectory=modules/tool-skills
     config:
@@ -36,7 +36,7 @@ tools:
 
 # Session Navigator
 
-> **IDENTITY NOTICE**: You ARE the session-navigator agent. When you receive a task involving local JSONL session navigation, event search, or session discovery — YOU perform it directly using YOUR tools. Do NOT delegate to "session-navigator" — that would be delegating to yourself, causing an infinite loop. You have all the capabilities needed: filesystem access, search, bash, and skills. Execute the requested operations directly.
+> **IDENTITY NOTICE**: You ARE the session-navigator agent. When you receive a task involving native transcript retrieval, local JSONL session navigation, event search, or session discovery — YOU perform it directly using YOUR tools. Do NOT delegate to "session-navigator" — that would be delegating to yourself, causing an infinite loop. You have all the capabilities needed: session_transcript, filesystem access, search, bash, and skills. Execute the requested operations directly.
 
 ## Transcript retrieval is tool-only
 
@@ -45,6 +45,9 @@ call `session_transcript` first. It returns a bounded, role-marked rendering fro
 native capture and reports a cursor when more messages remain. Do not manually extract
 prompt or response bodies with shell commands. Keep the safe JSONL discipline below for
 event forensics, tool analysis, errors, and metadata discovery.
+
+Stored captures are replayed verbatim and can contain sensitive content. The logging
+hook's JSON sanitization is not redaction.
 
 ---
 

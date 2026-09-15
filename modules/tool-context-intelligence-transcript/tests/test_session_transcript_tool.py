@@ -7,7 +7,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-from amplifier_module_tool_context_intelligence_query.session_transcript_tool import (
+import pytest
+
+from amplifier_module_tool_context_intelligence_transcript.session_transcript_tool import (
     SessionTranscriptTool,
 )
 
@@ -76,9 +78,10 @@ async def test_explicit_session_ids_use_capture_resolver_capability(tmp_path) ->
     coordinator.get_capability.side_effect = lambda name: (
         resolver if name == "context_intelligence.capture_resolver" else None
     )
-    tool = SessionTranscriptTool(coordinator)
 
-    result = await tool.execute({"session_ids": ["other-session"], "format": "json"})
+    result = await SessionTranscriptTool(coordinator).execute(
+        {"session_ids": ["other-session"], "format": "json"}
+    )
 
     assert result.success is True
     assert isinstance(result.output, dict)
@@ -89,9 +92,8 @@ async def test_explicit_session_ids_use_capture_resolver_capability(tmp_path) ->
 async def test_missing_current_session_identity_fails_loudly() -> None:
     coordinator = MagicMock(spec=[])
     coordinator.get_capability = MagicMock(return_value=None)
-    tool = SessionTranscriptTool(coordinator)
 
-    result = await tool.execute({})
+    result = await SessionTranscriptTool(coordinator).execute({})
 
     assert result.success is False
     assert isinstance(result.error, dict)
@@ -99,9 +101,7 @@ async def test_missing_current_session_identity_fails_loudly() -> None:
 
 
 async def test_invalid_tool_input_returns_a_structured_error() -> None:
-    tool = SessionTranscriptTool(MagicMock())
-
-    result = await tool.execute({"format": []})
+    result = await SessionTranscriptTool(MagicMock()).execute({"format": []})
 
     assert result.success is False
     assert isinstance(result.error, dict)
@@ -110,9 +110,43 @@ async def test_invalid_tool_input_returns_a_structured_error() -> None:
 
 async def test_rejects_path_like_session_ids_before_resolving_a_capture() -> None:
     coordinator = MagicMock()
-    tool = SessionTranscriptTool(coordinator)
 
-    result = await tool.execute({"session_ids": ["../other-session"]})
+    result = await SessionTranscriptTool(coordinator).execute({"session_ids": ["../other-session"]})
+
+    assert result.success is False
+    assert isinstance(result.error, dict)
+    assert result.error["type"] == "invalid_request"
+    coordinator.get_capability.assert_not_called()
+
+
+@pytest.mark.parametrize("metacharacter", ["*", "?", "[", "]"])
+async def test_rejects_glob_metacharacters_in_session_ids_before_resolving_a_capture(
+    metacharacter: str,
+) -> None:
+    coordinator = MagicMock()
+
+    result = await SessionTranscriptTool(coordinator).execute(
+        {"session_ids": [f"session{metacharacter}id"]}
+    )
+
+    assert result.success is False
+    assert isinstance(result.error, dict)
+    assert result.error["type"] == "invalid_request"
+    coordinator.get_capability.assert_not_called()
+
+
+@pytest.mark.parametrize("metacharacter", ["*", "?", "[", "]"])
+async def test_rejects_glob_metacharacters_in_cursor_map_before_resolving_a_capture(
+    metacharacter: str,
+) -> None:
+    coordinator = MagicMock()
+
+    result = await SessionTranscriptTool(coordinator).execute(
+        {
+            "session_ids": ["requested-session"],
+            "after_event_lines": {f"requested{metacharacter}session": 0},
+        }
+    )
 
     assert result.success is False
     assert isinstance(result.error, dict)
@@ -122,9 +156,7 @@ async def test_rejects_path_like_session_ids_before_resolving_a_capture() -> Non
 
 async def test_caches_the_capture_resolver_for_multiple_requested_sessions(tmp_path) -> None:
     first = _capture(tmp_path, "first-session")
-    other_capture_root = tmp_path / "other"
-    other_capture_root.mkdir()
-    second = _capture(other_capture_root, "second-session")
+    second = _capture(tmp_path / "other", "second-session")
     paths = {"first-session": first, "second-session": second}
     resolver = SimpleNamespace(
         resolve_capture=lambda session_id: {
@@ -134,9 +166,10 @@ async def test_caches_the_capture_resolver_for_multiple_requested_sessions(tmp_p
     )
     coordinator = MagicMock()
     coordinator.get_capability.return_value = resolver
-    tool = SessionTranscriptTool(coordinator)
 
-    result = await tool.execute({"session_ids": ["first-session", "second-session"]})
+    result = await SessionTranscriptTool(coordinator).execute(
+        {"session_ids": ["first-session", "second-session"]}
+    )
 
     assert result.success is True
     coordinator.get_capability.assert_called_once_with("context_intelligence.capture_resolver")
@@ -144,9 +177,7 @@ async def test_caches_the_capture_resolver_for_multiple_requested_sessions(tmp_p
 
 async def test_multiple_sessions_accept_independent_pagination_cursors(tmp_path) -> None:
     first = _capture(tmp_path, "first-session")
-    other_capture_root = tmp_path / "other"
-    other_capture_root.mkdir()
-    second = _capture(other_capture_root, "second-session")
+    second = _capture(tmp_path / "other", "second-session")
     paths = {"first-session": first, "second-session": second}
     resolver = SimpleNamespace(
         resolve_capture=lambda session_id: {
@@ -170,8 +201,9 @@ async def test_multiple_sessions_accept_independent_pagination_cursors(tmp_path)
     assert result.output["sessions"][1]["messages"][0]["content"] == "Hello"
 
 
-async def test_hook_fallback_finds_a_named_capture_in_another_project(tmp_path) -> None:
-    _capture(tmp_path / "other-project" / "sessions", "other-session")
+async def test_hook_fallback_finds_only_the_literal_matching_session_directory(tmp_path) -> None:
+    expected = _capture(tmp_path / "other-project" / "sessions", "other-session")
+    _capture(tmp_path / "another-project" / "sessions", "other-session-copy")
     hook_resolver = SimpleNamespace(
         base_path=tmp_path,
         session_dir=lambda session_id: tmp_path / "current-project" / "sessions" / session_id,
@@ -188,3 +220,17 @@ async def test_hook_fallback_finds_a_named_capture_in_another_project(tmp_path) 
     assert result.success is True
     assert isinstance(result.output, dict)
     assert result.output["sessions"][0]["session_id"] == "other-session"
+    assert SessionTranscriptTool._find_capture_metadata(tmp_path, "other-session") == [
+        expected / "metadata.json"
+    ]
+
+
+async def test_tool_rejects_content_limit_above_total_limit(tmp_path) -> None:
+    tool = SessionTranscriptTool(_coordinator("session-123", _capture(tmp_path)))
+
+    result = await tool.execute({"max_content_chars": 100_001})
+
+    assert tool.input_schema["properties"]["max_content_chars"]["maximum"] == 100_000
+    assert result.success is False
+    assert isinstance(result.error, dict)
+    assert result.error["type"] == "invalid_request"

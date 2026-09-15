@@ -1,4 +1,4 @@
-"""SessionTranscriptTool  bounded native transcript retrieval for agents."""
+"""SessionTranscriptTool — bounded native transcript retrieval for agents."""
 
 from __future__ import annotations
 
@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Any
 
 from amplifier_core.models import ToolResult
-
 from context_intelligence.native_transcript import (
     CaptureLocator,
     NativeTranscriptError,
@@ -19,6 +18,7 @@ _CAPTURE_RESOLVER_CAPABILITY = "context_intelligence.capture_resolver"
 _HOOK_RESOLVER_CAPABILITY = "context_intelligence.hook_config_resolver"
 _MAX_SESSIONS_PER_REQUEST = 3
 _MAX_TOTAL_CONTENT_CHARS = 100_000
+_GLOB_METACHARACTERS = frozenset("*?[]")
 
 
 class SessionTranscriptTool:
@@ -37,9 +37,10 @@ class SessionTranscriptTool:
     def description(self) -> str:
         return (
             "Retrieve verbatim user and assistant messages from a native Context Intelligence "
-            "capture, with role markers and periodic timestamps. USE WHEN the conversation "
-            "itself is needed. DO NOT USE WHEN graph relationships, tool executions, or "
-            "cross-session metrics are needed -- use graph_query."
+            "capture, with role markers and periodic timestamps. Stored captures can contain "
+            "sensitive content. USE WHEN the conversation itself is needed. DO NOT USE WHEN "
+            "graph relationships, tool executions, or cross-session metrics are needed -- use "
+            "graph_query."
         )
 
     @property
@@ -66,8 +67,8 @@ class SessionTranscriptTool:
                 "max_content_chars": {
                     "type": "integer",
                     "minimum": 1,
-                    "maximum": 200000,
-                    "default": 50000,
+                    "maximum": _MAX_TOTAL_CONTENT_CHARS,
+                    "default": 50_000,
                 },
                 "timestamp_every_seconds": {
                     "type": "integer",
@@ -94,6 +95,22 @@ class SessionTranscriptTool:
             "capture resolver did not return events_path and metadata_path",
         )
 
+    @staticmethod
+    def _find_capture_metadata(base_path: Path, session_id: str) -> list[Path]:
+        """Find literal session-directory matches without treating the ID as a glob."""
+        matches: list[Path] = []
+        for project_dir in base_path.iterdir():
+            sessions_dir = project_dir / "sessions"
+            if not sessions_dir.is_dir():
+                continue
+            for session_dir in sessions_dir.iterdir():
+                if session_dir.name != session_id:
+                    continue
+                metadata_path = session_dir / "context-intelligence" / "metadata.json"
+                if metadata_path.is_file():
+                    matches.append(metadata_path)
+        return matches
+
     def _resolve_locator(self, session_id: str) -> CaptureLocator:
         """Resolve through an embedding host first, then the mounted CI hook."""
         if self._capture_resolver is None:
@@ -114,11 +131,7 @@ class SessionTranscriptTool:
                     return locator
                 base_path = getattr(self._hook_resolver, "base_path", None)
                 if isinstance(base_path, Path):
-                    matches = list(
-                        base_path.glob(
-                            f"*/sessions/{session_id}/context-intelligence/metadata.json"
-                        )
-                    )
+                    matches = self._find_capture_metadata(base_path, session_id)
                     if len(matches) == 1:
                         return CaptureLocator(
                             events_path=matches[0].with_name("events.jsonl"),
@@ -143,7 +156,7 @@ class SessionTranscriptTool:
 
     @staticmethod
     def _is_safe_session_id(value: object) -> bool:
-        """Accept opaque IDs but never path components."""
+        """Accept opaque IDs but never path components or glob expressions."""
         return (
             isinstance(value, str)
             and bool(value)
@@ -151,16 +164,17 @@ class SessionTranscriptTool:
             and "/" not in value
             and "\\" not in value
             and "\0" not in value
+            and not _GLOB_METACHARACTERS.intersection(value)
         )
 
     def _requested_sessions(self, input_data: dict[str, Any]) -> list[tuple[str, int]]:
         raw_ids = input_data.get("session_ids")
         if raw_ids is None:
             current_id = getattr(self._coordinator, "session_id", None)
-            if not isinstance(current_id, str) or not current_id:
+            if not isinstance(current_id, str) or not self._is_safe_session_id(current_id):
                 raise NativeTranscriptError(
                     "current_session_unavailable",
-                    "this invocation has no runtime session identity; pass session_ids explicitly",
+                    "this invocation has no safe runtime session identity; pass session_ids explicitly",
                 )
             session_ids = [current_id]
         else:
@@ -172,7 +186,8 @@ class SessionTranscriptTool:
             ):
                 raise NativeTranscriptError(
                     "invalid_request",
-                    "session_ids must contain one to three opaque IDs without path separators",
+                    "session_ids must contain one to three opaque IDs without path separators or "
+                    "glob metacharacters",
                 )
             session_ids = raw_ids
 
@@ -187,7 +202,7 @@ class SessionTranscriptTool:
             ):
                 raise NativeTranscriptError(
                     "invalid_request",
-                    "after_event_lines must map session IDs to non-negative integer cursors",
+                    "after_event_lines must map safe session IDs to non-negative integer cursors",
                 )
             if not set(per_session).issubset(session_ids):
                 raise NativeTranscriptError(
@@ -217,9 +232,15 @@ class SessionTranscriptTool:
             max_messages = input_data.get("max_messages", 50)
             max_content_chars = input_data.get("max_content_chars", 50_000)
             timestamp_every_seconds = input_data.get("timestamp_every_seconds", 300)
-            if not isinstance(max_content_chars, int) or isinstance(max_content_chars, bool):
+            if (
+                not isinstance(max_content_chars, int)
+                or isinstance(max_content_chars, bool)
+                or not 1 <= max_content_chars <= _MAX_TOTAL_CONTENT_CHARS
+            ):
                 raise NativeTranscriptError(
-                    "invalid_request", "max_content_chars must be an integer"
+                    "invalid_request",
+                    "max_content_chars must be an integer between 1 and "
+                    f"{_MAX_TOTAL_CONTENT_CHARS}",
                 )
             per_session_chars = min(max_content_chars, _MAX_TOTAL_CONTENT_CHARS // len(sessions))
             pages = [
