@@ -2,9 +2,16 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+import sys
 from typing import Any
 
 import pytest
+
+# Exercise the changed shared library from this checkout rather than the package
+# dependency pinned to the last main revision.
+BUNDLE_ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(BUNDLE_ROOT))
 
 
 @pytest.fixture(autouse=True)

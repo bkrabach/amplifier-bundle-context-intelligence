@@ -1,7 +1,7 @@
 [project]
 name = "amplifier-module-tool-context-intelligence-query"
 version = "0.1.3"
-description = "CI read tools — graph_query (Cypher) and blob_read from the context-intelligence server"
+description = "CI read tools — graph_query, blob_read, whoami, and local session_transcript"
 requires-python = ">=3.11"
 license = "MIT"
 

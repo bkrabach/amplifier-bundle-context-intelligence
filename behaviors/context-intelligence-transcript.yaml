@@ -1,0 +1,19 @@
+bundle:
+  name: context-intelligence-transcript-behavior
+  version: 0.1.0
+  description: >
+    Native transcript recall: captures local session events, then mounts the
+    Context Intelligence read tools and user-invocable /transcript skill. Other
+    hosts may instead provide their own capture resolver.
+
+includes:
+  - bundle: context-intelligence:behaviors/context-intelligence-logging
+
+tools:
+  - module: tool-context-intelligence-query
+    source: git+https://github.com/microsoft/amplifier-bundle-context-intelligence@main#subdirectory=modules/tool-context-intelligence-query
+  - module: tool-skills
+    source: git+https://github.com/microsoft/amplifier-bundle-skills@main#subdirectory=modules/tool-skills
+    config:
+      skills:
+        - "git+https://github.com/microsoft/amplifier-bundle-context-intelligence@main#subdirectory=skills/transcript"

@@ -14,4 +14,4 @@ bundle:
 
 includes:
   - bundle: context-intelligence:behaviors/context-intelligence-design
-  - bundle: context-intelligence:behaviors/context-intelligence-logging
+  - bundle: context-intelligence:behaviors/context-intelligence-transcript

@@ -81,6 +81,23 @@ packages this as `_assert_jsonl_compatible` and calls it automatically in
 
 ---
 
+## Native transcript retrieval
+
+`session_transcript` reads only a caller-supplied native capture location: an
+`events.jsonl` path plus its `metadata.json`. The shared reader deliberately does not
+assume an Amplifier app-cli session root; hosts resolve their own capture locations.
+
+It selects only these lossless message fields:
+
+| Event | Role | Field |
+|-------|------|-------|
+| `prompt:submit` | user | `data.prompt` |
+| `prompt:complete` | assistant | `data.response` |
+
+A normal output limit is pagination, not partial content: the reader leaves the next
+whole message for the cursor returned in `next_after_event_line`. `partial` reports a
+capture problem such as malformed JSON or a missing required message field.
+
 ## What Data Layer 1 JSONL Cannot Provide Without the Graph
 
 The JSONL path is a graceful Data Layer 1 baseline. It cannot reconstruct

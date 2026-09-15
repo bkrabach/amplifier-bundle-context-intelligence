@@ -1,6 +1,6 @@
 """Module-level contract tests for tool-context-intelligence-query.
 
-Tests for the merged three-tool module: mount registers all three tools from
+Tests for the merged four-tool module: mount registers all four tools from
 one call, the ToolConfigResolver is shared (one instance, identical resolution),
 the lazy hook lookup stays lazy (not cached at mount time), and malformed/empty
 destination inputs fail loud or fall through correctly.
@@ -93,20 +93,20 @@ class TestModuleContract:
 
 
 # ---------------------------------------------------------------------------
-# TestMountRegistersExactlyThreeTools
+# TestMountRegistersExactlyFourTools
 # ---------------------------------------------------------------------------
 
 
-class TestMountRegistersExactlyThreeTools:
-    """mount() must register exactly three tools with distinct names."""
+class TestMountRegistersExactlyFourTools:
+    """mount() must register exactly four tools with distinct names."""
 
-    async def test_mount_registers_exactly_three_tools(self) -> None:
+    async def test_mount_registers_exactly_four_tools(self) -> None:
         from amplifier_module_tool_context_intelligence_query import mount
 
         coordinator = _make_coordinator()
         await mount(coordinator, config={})
 
-        assert coordinator.mount.call_count == 3
+        assert coordinator.mount.call_count == 4
 
     async def test_all_tool_calls_use_tools_category(self) -> None:
         from amplifier_module_tool_context_intelligence_query import mount
@@ -117,14 +117,14 @@ class TestMountRegistersExactlyThreeTools:
         for call in coordinator.mount.call_args_list:
             assert call.args[0] == "tools"
 
-    async def test_tool_names_are_graph_query_blob_read_and_whoami(self) -> None:
+    async def test_tool_names_include_session_transcript(self) -> None:
         from amplifier_module_tool_context_intelligence_query import mount
 
         coordinator = _make_coordinator()
         await mount(coordinator, config={})
 
         registered_names = {call.kwargs["name"] for call in coordinator.mount.call_args_list}
-        assert registered_names == {"graph_query", "blob_read", "whoami"}
+        assert registered_names == {"graph_query", "blob_read", "whoami", "session_transcript"}
 
     async def test_mounted_tools_are_protocol_compliant(self) -> None:
         from amplifier_module_tool_context_intelligence_query import mount
@@ -178,7 +178,7 @@ class TestSeam1SkillSyncLifecycleCutover:
         await mount(coordinator, config={})
 
         registered_names = {call.kwargs["name"] for call in coordinator.mount.call_args_list}
-        assert registered_names == {"graph_query", "blob_read", "whoami"}
+        assert registered_names == {"graph_query", "blob_read", "whoami", "session_transcript"}
 
     async def test_module_has_no_on_session_ready(self) -> None:
         import amplifier_module_tool_context_intelligence_query as module
@@ -263,7 +263,7 @@ class TestSeam2SkillSyncEnabledCutover:
 class TestSharedResolverInvariant:
     """The ToolConfigResolver is shared: one instance, identical resolution."""
 
-    async def test_all_three_tools_have_same_resolver_instance(self) -> None:
+    async def test_server_tools_have_same_resolver_instance(self) -> None:
         """gq/br/whoami._tool_resolver are all the SAME object from mount()."""
         from amplifier_module_tool_context_intelligence_query import mount
 
@@ -278,7 +278,7 @@ class TestSharedResolverInvariant:
         assert gq._tool_resolver is whoami._tool_resolver
 
     async def test_shared_resolver_consistency_same_url_and_api_key(self) -> None:
-        """All three tools resolve to the SAME (url, api_key) from sources.
+        """All server-backed tools resolve to the SAME (url, api_key) from sources.
 
         This is the load-bearing correctness invariant: with a shared resolver,
         divergent read-endpoint config is structurally impossible.
@@ -665,9 +665,9 @@ class TestMountWithMisconfiguredSource:
         coordinator = _make_coordinator()
         await mount(coordinator, config=config)
 
-        assert coordinator.mount.call_count == 3
+        assert coordinator.mount.call_count == 4
         registered_names = {call.kwargs["name"] for call in coordinator.mount.call_args_list}
-        assert registered_names == {"graph_query", "blob_read", "whoami"}
+        assert registered_names == {"graph_query", "blob_read", "whoami", "session_transcript"}
 
     async def test_mount_logs_warning_with_one_bad_source(self, caplog: Any) -> None:
         import logging

@@ -6,9 +6,9 @@ bundle:
 meta:
   name: graph-analyst
   description: |
-    Use for context-intelligence session/event analysis, delegation-chain tracing, or ci-blob:// URI resolution — reach for this first. It checks graph-server availability every run and falls back to session-navigator when the server is down or the workspace holds 0 sessions.
+    Use for context-intelligence graph/session analysis, delegation tracing, or ci-blob:// URI resolution. For native user/assistant transcript replay or quotes, call session_transcript first. Otherwise check graph availability and fall back to session-navigator when it is down or has no workspace sessions.
 
-    USE WHEN: running Cypher over that graph; tracing delegation trees or parent/child session links; resolving ci-blob:// URIs and extracting fields from large payloads; analysing event, tool-usage or error-frequency patterns; availability is uncertain.
+    USE WHEN: Cypher; session/delegation traces; ci-blob fields; event, tool, or error analysis; availability is uncertain.
 
     DO NOT USE WHEN: the answer is in source code, not session captures.
 
@@ -41,6 +41,15 @@ tools:
 > **Self-delegation rules:**
 > - **Recursing the same task back to `graph-analyst` = infinite loop. Never do this.**
 > - **`delegate(agent="self", context_depth="none")` for independent parallel sub-tasks = safe and powerful.** Use it to decompose a large investigation across multiple independent sessions, workspaces, or topics. Each sub-instance runs a clean, bounded analysis; the root instance synthesizes the results. See Section 3.1 for the safe pattern.
+
+## Native transcript exception
+
+If the caller explicitly asks for a verbatim user/assistant transcript, replay,
+or quote from the native capture, call `session_transcript` before any graph health
+check. Its no-ID form resolves the current runtime session; pass `session_ids` for
+another session or sessions. It reports a pagination cursor when more messages exist.
+Use graph_query only when graph relationships, tool execution data, blobs, or
+cross-session analysis are also needed.
 
 ---
 

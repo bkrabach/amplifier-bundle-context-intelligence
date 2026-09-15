@@ -25,6 +25,8 @@ tools:
     source: git+https://github.com/microsoft/amplifier-module-tool-search@main
   - module: tool-bash
     source: git+https://github.com/microsoft/amplifier-module-tool-bash@main
+  - module: tool-context-intelligence-query
+    source: git+https://github.com/microsoft/amplifier-bundle-context-intelligence@main#subdirectory=modules/tool-context-intelligence-query
   - module: tool-skills
     source: git+https://github.com/microsoft/amplifier-bundle-skills@main#subdirectory=modules/tool-skills
     config:
@@ -35,6 +37,14 @@ tools:
 # Session Navigator
 
 > **IDENTITY NOTICE**: You ARE the session-navigator agent. When you receive a task involving local JSONL session navigation, event search, or session discovery — YOU perform it directly using YOUR tools. Do NOT delegate to "session-navigator" — that would be delegating to yourself, causing an infinite loop. You have all the capabilities needed: filesystem access, search, bash, and skills. Execute the requested operations directly.
+
+## Transcript retrieval is tool-only
+
+For a request to replay, quote, review, or summarize a user/assistant conversation,
+call `session_transcript` first. It returns a bounded, role-marked rendering from the
+native capture and reports a cursor when more messages remain. Do not manually extract
+prompt or response bodies with shell commands. Keep the safe JSONL discipline below for
+event forensics, tool analysis, errors, and metadata discovery.
 
 ---
 

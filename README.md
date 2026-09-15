@@ -19,6 +19,24 @@ Two agents are included for querying session data:
 - **`graph-analyst`** — primary entry point. Queries the context-intelligence property graph using Cypher, resolves `ci-blob://` URIs, and automatically delegates to `session-navigator` when the graph server is unreachable or returns 0 sessions.
 - **`session-navigator`** — local fallback agent. Navigates session data via flat JSONL files using safe `bash`/`jq`/`grep` extraction patterns when the server is unavailable. Invoked only by `graph-analyst` via the delegation chain — external callers should use `graph-analyst` as the entry point.
 
+### Transcript recall
+
+The `context-intelligence-transcript` behavior mounts a user-invocable `/transcript`
+skill and the `session_transcript` tool. With no arguments, `/transcript` replays the
+current session's native user/assistant capture. Pass an intent to use that transcript
+as source material, or pass `--session ID[,ID...]` to target other session captures.
+The reader preserves stored message strings, paginates only between messages, and does
+not call the graph or parse provider-raw payloads. Other hosts can provide their own
+capture resolver; the reusable library itself takes explicit event and metadata paths.
+
+For scripts outside an active Amplifier session, pass one or more capture directories:
+
+```bash
+python scripts/context-intelligence.py transcript \
+  --session-dir /host-specific/captures/SESSION/context-intelligence \
+  --max-messages 50 --format text
+```
+
 A **`/context-intelligence` mode** is also included for building new context intelligence-aware tooling. Activate it to enter a design workspace where you can investigate session data, explore the graph model, and produce reusable Amplifier components (skills, agents, context files, recipes, CLIs) for your project.
 
 ### Composition — pick the layer you need
