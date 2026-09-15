@@ -1,0 +1,49 @@
+[project]
+name = "amplifier-module-tool-context-intelligence-recover"
+version = "0.1.0"
+description = "Durable native Context Intelligence capture recovery"
+requires-python = ">=3.11"
+license = "MIT"
+dependencies = [
+    "amplifier-bundle-context-intelligence @ git+https://github.com/microsoft/amplifier-bundle-context-intelligence@main",
+    "amplifier-module-hook-context-intelligence @ git+https://github.com/microsoft/amplifier-bundle-context-intelligence@main#subdirectory=modules/hook-context-intelligence",
+    "httpx>=0.28.1",
+    "pyyaml>=6.0",
+]
+
+[project.scripts]
+context-intelligence-recover = "amplifier_module_tool_context_intelligence_recover.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv]
+package = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["amplifier_module_tool_context_intelligence_recover"]
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.uv.sources]
+amplifier-module-hook-context-intelligence = { path = "../hook-context-intelligence", editable = true }
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+    "pyright>=1.1",
+    "ruff>=0.14",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.pyright]
+pythonVersion = "3.11"
+typeCheckingMode = "basic"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
