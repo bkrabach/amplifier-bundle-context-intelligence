@@ -444,81 +444,55 @@ class TestSessionSummaryServerErrors:
 
 
 # ---------------------------------------------------------------------------
-# TestSessionSummary404IsNotProofOfAbsence  (ci_delete_fixes-tiq)
-#
-# A 404 from GET /sessions/{id}/summary is ambiguous: the session may be absent,
-# OR the server may predate the deletion router and 404 every such request. The
-# two are byte-identical. Reading the second as the first reports a server CLEAN
-# while it still holds the data -- a silent false-negative on a data-REMOVAL
-# guarantee. Measured: the same session 404'd on 6.7.6 and returned 200 with
-# 13,987 nodes on 6.9.1.
+
 # ---------------------------------------------------------------------------
 
 
-def _summary_404_client(supports: bool | None):
-    """AsyncCIClient double whose summary 404s and whose capability probe is fixed."""
+# ---------------------------------------------------------------------------
+# 404 semantics: absence is only what the SERVER says it is.
+#
+# A 404 alone cannot prove a session is absent. An unmatched route answers
+# {"detail": "Not Found"}; a proxy or gateway can answer 404 without the request
+# ever reaching the handler. Only the server's own session_not_found code means
+# "I looked, it is not here" -- everything else is unverified.
+#
+# These use REAL CIClientError objects constructed the way the client builds
+# them. Nothing is monkey-patched onto the exception.
+# ---------------------------------------------------------------------------
+from amplifier_module_tool_server_data_ops.session_summary_tool import (  # noqa: E402
+    SESSION_NOT_FOUND_CODE,
+)
+
+
+def _summary_raising(err: Exception):
+    inst = AsyncMock()
+    inst.session_summary = AsyncMock(side_effect=err)
+    return MagicMock(return_value=inst)
+
+
+def _client_error(status: int, *, code: str | None):
+    """A CIClientError exactly as the client raises it for an HTTP error."""
     from context_intelligence.client import CIClientError
 
-    mock_instance = AsyncMock()
-    mock_instance.session_summary = AsyncMock(
-        side_effect=CIClientError(
-            "HTTP 404 from http://ci-server:9000/sessions/s1/summary",
-            error_type="http_status",
-            url="http://ci-server:9000/sessions/s1/summary",
-            status_code=404,
-        )
+    detail = {"code": code, "message": "x"} if code else "Not Found"
+    return CIClientError(
+        f"HTTP {status} from http://ci-server:9000/sessions/s1/summary",
+        error_type="http_status",
+        url="http://ci-server:9000/sessions/s1/summary",
+        status_code=status,
+        error_body={"detail": detail},
+        error_code=code,
     )
-    mock_instance.supports_session_deletion = AsyncMock(return_value=supports)
-    return MagicMock(return_value=mock_instance)
 
 
-class TestSessionSummary404IsNotProofOfAbsence:
-    async def test_old_server_404_is_reported_unverifiable_not_absent(self) -> None:
+class TestSummary404Semantics:
+    async def test_semantic_session_not_found_reports_unknown_session(self) -> None:
         from amplifier_module_tool_server_data_ops.session_summary_tool import SessionSummaryTool
 
         tool = SessionSummaryTool(_make_coordinator(resolver=_make_hook_resolver()))
         with patch(
             "amplifier_module_tool_server_data_ops.session_summary_tool.AsyncCIClient",
-            _summary_404_client(supports=False),
-        ):
-            result = await tool.execute({"session_id": "s1"})
-
-        assert result.success is False
-        assert result.error["verifiable"] is False
-        assert result.error["server_supports_deletion"] is False
-        assert "CANNOT VERIFY" in result.error["message"]
-        # The old wording asserted absence -- it must not come back.
-        assert "unknown session" not in result.error["message"]
-
-    async def test_undeterminable_capability_also_refuses_to_attest_absence(self) -> None:
-        """Gateway rejected the probe / server unreachable -> fail CLOSED.
-
-        Treating "could not determine" as "assume fine" reintroduces the same
-        false-negative one layer up.
-        """
-        from amplifier_module_tool_server_data_ops.session_summary_tool import SessionSummaryTool
-
-        tool = SessionSummaryTool(_make_coordinator(resolver=_make_hook_resolver()))
-        with patch(
-            "amplifier_module_tool_server_data_ops.session_summary_tool.AsyncCIClient",
-            _summary_404_client(supports=None),
-        ):
-            result = await tool.execute({"session_id": "s1"})
-
-        assert result.success is False
-        assert result.error["verifiable"] is False
-        assert result.error["server_supports_deletion"] is None
-        assert "CANNOT VERIFY" in result.error["message"]
-        assert "unknown session" not in result.error["message"]
-
-    async def test_capable_server_404_still_means_absent(self) -> None:
-        """The fix must not blunt a genuine 404 on a server that DOES have the route."""
-        from amplifier_module_tool_server_data_ops.session_summary_tool import SessionSummaryTool
-
-        tool = SessionSummaryTool(_make_coordinator(resolver=_make_hook_resolver()))
-        with patch(
-            "amplifier_module_tool_server_data_ops.session_summary_tool.AsyncCIClient",
-            _summary_404_client(supports=True),
+            _summary_raising(_client_error(404, code=SESSION_NOT_FOUND_CODE)),
         ):
             result = await tool.execute({"session_id": "s1"})
 
@@ -526,43 +500,66 @@ class TestSessionSummary404IsNotProofOfAbsence:
         assert "unknown session" in result.error["message"]
         assert "verifiable" not in result.error
 
-
-class TestProbeIsVersionSafe:
-    """An OLD client (no supports_session_deletion) must not crash the 404 path.
-
-    tool-server-data-ops pins the client library to git main, so a deployment can
-    legitimately run a client that predates the probe. Calling it unconditionally
-    would raise AttributeError -- turning a fail-closed design into a crash and
-    making correctness depend on two repos landing in the right order.
-    """
-
-    async def test_old_client_without_the_probe_degrades_to_unverifiable(self) -> None:
-        from context_intelligence.client import CIClientError
-
+    async def test_generic_404_is_unverified(self) -> None:
+        """Router/proxy 404: no code -> must NOT be read as absence."""
         from amplifier_module_tool_server_data_ops.session_summary_tool import SessionSummaryTool
-
-        class _OldClient:
-            """No supports_session_deletion attribute at all."""
-
-            def __init__(self, **kw: Any) -> None: ...
-
-            async def session_summary(self, session_id: str):
-                raise CIClientError(
-                    "HTTP 404 from http://ci-server:9000/sessions/s1/summary",
-                    error_type="http_status",
-                    url="http://ci-server:9000/sessions/s1/summary",
-                    status_code=404,
-                )
 
         tool = SessionSummaryTool(_make_coordinator(resolver=_make_hook_resolver()))
         with patch(
             "amplifier_module_tool_server_data_ops.session_summary_tool.AsyncCIClient",
-            _OldClient,
+            _summary_raising(_client_error(404, code=None)),
         ):
             result = await tool.execute({"session_id": "s1"})
 
         assert result.success is False
-        # No AttributeError, and it fails CLOSED rather than asserting absence.
         assert result.error["verifiable"] is False
-        assert result.error["server_supports_deletion"] is None
+        assert result.error["server_error_code"] is None
+        assert "CANNOT VERIFY" in result.error["message"]
+        assert "unknown session" not in result.error["message"]
+
+    async def test_404_with_a_DIFFERENT_code_is_also_unverified(self) -> None:
+        from amplifier_module_tool_server_data_ops.session_summary_tool import SessionSummaryTool
+
+        tool = SessionSummaryTool(_make_coordinator(resolver=_make_hook_resolver()))
+        with patch(
+            "amplifier_module_tool_server_data_ops.session_summary_tool.AsyncCIClient",
+            _summary_raising(_client_error(404, code="some_other_thing")),
+        ):
+            result = await tool.execute({"session_id": "s1"})
+
+        assert result.error["verifiable"] is False
+        assert "CANNOT VERIFY" in result.error["message"]
+
+    async def test_old_client_error_without_the_attribute_is_unverified_not_a_crash(
+        self,
+    ) -> None:
+        """An exception from a client older than error_code. No fabricated attrs:
+        this is a genuinely different exception type, as an old client would raise."""
+        from amplifier_module_tool_server_data_ops.session_summary_tool import SessionSummaryTool
+
+        class OldCIClientError(Exception):
+            """Shape of CIClientError before error_code existed."""
+
+            def __init__(self) -> None:
+                super().__init__("HTTP 404 from http://ci-server:9000/sessions/s1/summary")
+                self.error_type = "http_status"
+                self.url = "http://ci-server:9000/sessions/s1/summary"
+                self.status_code = 404
+
+        with (
+            patch(
+                "amplifier_module_tool_server_data_ops.session_summary_tool.CIClientError",
+                OldCIClientError,
+            ),
+            patch(
+                "amplifier_module_tool_server_data_ops.session_summary_tool.AsyncCIClient",
+                _summary_raising(OldCIClientError()),
+            ),
+        ):
+            tool = SessionSummaryTool(_make_coordinator(resolver=_make_hook_resolver()))
+            result = await tool.execute({"session_id": "s1"})
+
+        assert result.success is False
+        assert result.error["verifiable"] is False
+        assert result.error["server_error_code"] is None
         assert "CANNOT VERIFY" in result.error["message"]

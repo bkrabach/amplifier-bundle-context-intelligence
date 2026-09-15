@@ -23,27 +23,16 @@ from context_intelligence.tool_resolver import (
 )
 
 
-async def _probe_deletion_support(client: Any) -> bool | None:
-    """Ask the client whether the server publishes the deletion routes.
-
-    Version-safe on purpose. ``tool-server-data-ops`` pins the client library to
-    ``amplifier-bundle-context-intelligence @ git+...@main``, so a deployment can
-    legitimately be running a client that predates
-    ``supports_session_deletion()``. Calling it unconditionally would raise
-    AttributeError on the 404 path -- turning a fail-closed design into a crash,
-    and making correctness depend on humans landing two repos in the right order.
-
-    A client too old to answer is exactly the "cannot determine" case, so it
-    returns ``None`` and the caller refuses to attest absence, same as any other
-    undeterminable result.
-    """
-    probe = getattr(client, "supports_session_deletion", None)
-    if probe is None:
-        return None
-    try:
-        return await probe()
-    except Exception:  # noqa: BLE001 - any probe failure is "unknown", never "supported"
-        return None
+#: The server's machine-readable code for "this server looked, and the session
+#: is not here" (context_intelligence_server.routers.deletion).
+#:
+#: This is the ONLY thing that licenses reporting absence. A 404 on its own
+#: cannot: an unmatched route answers ``{"detail": "Not Found"}``, and any proxy
+#: or gateway can answer 404 without the request ever reaching the handler.
+#: Those are indistinguishable from a real "not here" by status code alone, so
+#: every 404 WITHOUT this code is unverified -- never "clean", never "already
+#: deleted", never "absent".
+SESSION_NOT_FOUND_CODE = "session_not_found"
 
 
 class SessionSummaryTool:
@@ -194,30 +183,22 @@ class SessionSummaryTool:
             message = f"session lookup failed against {origin_name}: {exc}"
             extra: dict[str, Any] = {}
             if exc.status_code == 404:
-                # A 404 here is ambiguous: either the session really is not on
-                # this server, OR this server predates the deletion router and
-                # has no such route. Reading the second as the first reports a
-                # server CLEAN while it still holds the data -- a silent
-                # false-negative on a data-REMOVAL guarantee. Ask the server
-                # whether it publishes the route before asserting absence.
-                supported = await _probe_deletion_support(async_client)
-                if supported:
+                # A 404 is only proof of absence when the SERVER said so.
+                if getattr(exc, "error_code", None) == SESSION_NOT_FOUND_CODE:
                     message = f"unknown session {session_id!r} on {origin_name}"
                 else:
-                    reason = (
-                        "it does not expose the session-deletion endpoints "
-                        "(server predates that feature)"
-                        if supported is False
-                        else "its capabilities could not be determined "
-                        "(unreachable, or a gateway rejected the probe)"
-                    )
                     message = (
                         f"CANNOT VERIFY whether session {session_id!r} is on "
-                        f"{origin_name}: {reason}. Its 404 does NOT mean the data "
-                        f"is absent. Do NOT report {origin_name} as clean -- "
-                        "report it as unverified."
+                        f"{origin_name}: the 404 carries no {SESSION_NOT_FOUND_CODE!r} "
+                        "code, so it may have come from a proxy, a gateway, or a "
+                        "server without the deletion routes -- the request may never "
+                        f"have reached the handler. Do NOT report {origin_name} as "
+                        "clean; report it as unverified."
                     )
-                    extra = {"verifiable": False, "server_supports_deletion": supported}
+                    extra = {
+                        "verifiable": False,
+                        "server_error_code": getattr(exc, "error_code", None),
+                    }
             elif exc.status_code == 409:
                 message = (
                     f"session {session_id!r} on {origin_name} is still receiving data, "
