@@ -6,6 +6,7 @@ Subcommands:
     upload       -- Replay session events to the server (delegates to existing module)
     status       -- Check server health and session statistics
     query        -- Run ad-hoc Cypher queries against the graph
+    transcript   -- Render a bounded native transcript from explicit capture directories
 
 All subcommands support:
     --server-url     CI server URL (env: AMPLIFIER_CONTEXT_INTELLIGENCE_SERVER_URL)
@@ -39,7 +40,14 @@ _root = _here.parent
 if str(_root) not in sys.path:
     sys.path.insert(0, str(_root))
 
-from context_intelligence import CIClient  # noqa: E402
+from context_intelligence import (  # noqa: E402
+    CIClient,
+    CaptureLocator,
+    NativeTranscriptError,
+    TranscriptRequest,
+    read_native_transcript,
+    render_native_transcript,
+)
 from context_intelligence.config import resolve_config  # noqa: E402, F401
 
 import context_intelligence.config as _ci_config  # noqa: E402
@@ -418,6 +426,57 @@ def cmd_upload(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_transcript(args: argparse.Namespace) -> int:
+    """Render bounded transcript pages from explicit native capture directories."""
+    if len(args.session_dir) > 3:
+        print(json.dumps({"error": "at most three session directories may be requested"}))
+        return 2
+    cursors = args.after_event_line or [0] * len(args.session_dir)
+    if len(cursors) not in {1, len(args.session_dir)}:
+        print(json.dumps({"error": "repeat --after-event-line once per --session-dir"}))
+        return 2
+    if len(cursors) == 1 and len(args.session_dir) > 1:
+        cursors *= len(args.session_dir)
+    per_session_chars = min(args.max_content_chars, 100_000 // len(args.session_dir))
+    pages = []
+    try:
+        for session_dir, cursor in zip(args.session_dir, cursors, strict=True):
+            page = read_native_transcript(
+                CaptureLocator.from_session_dir(session_dir),
+                TranscriptRequest(
+                    after_event_line=cursor,
+                    max_messages=args.max_messages,
+                    max_content_chars=per_session_chars,
+                    timestamp_every_seconds=args.timestamp_every_seconds,
+                ),
+            )
+            pages.append(page)
+    except NativeTranscriptError as exc:
+        print(json.dumps({"error": str(exc), "type": exc.code}))
+        print(str(exc), file=sys.stderr)
+        return 1
+
+    if args.format == "json":
+        output: dict[str, object] = {
+            "status": "partial" if any(page.status == "partial" for page in pages) else "complete",
+            "sessions": [page.as_dict() for page in pages],
+        }
+        print(json.dumps(output, ensure_ascii=False, indent=2))
+    else:
+        for index, page in enumerate(pages):
+            if index:
+                print("\n")
+            print(
+                render_native_transcript(page, timestamp_every_seconds=args.timestamp_every_seconds)
+            )
+            for issue in page.issues:
+                print(
+                    f"capture issue at event line {issue.event_line}: {issue.detail}",
+                    file=sys.stderr,
+                )
+    return 3 if any(page.status == "partial" for page in pages) else 0
+
+
 def cmd_status(args: argparse.Namespace) -> int:
     """Check server health and session statistics. (Task 12)"""
     # ── Logging ──────────────────────────────────────────────────────────────
@@ -560,6 +619,25 @@ def main(argv: list[str] | None = None) -> int:
     )
     _add_server_args(upload_p)
     upload_p.set_defaults(func=cmd_upload)
+
+    # -- transcript --
+    transcript_p = subparsers.add_parser(
+        "transcript",
+        help="Render bounded native transcripts from explicit capture directories.",
+    )
+    transcript_p.add_argument(
+        "--session-dir",
+        action="append",
+        required=True,
+        metavar="DIR",
+        help="Native context-intelligence capture directory (repeat for multiple sessions).",
+    )
+    transcript_p.add_argument("--after-event-line", action="append", type=int, metavar="N")
+    transcript_p.add_argument("--max-messages", type=int, default=50, metavar="N")
+    transcript_p.add_argument("--max-content-chars", type=int, default=50_000, metavar="N")
+    transcript_p.add_argument("--timestamp-every-seconds", type=int, default=300, metavar="N")
+    transcript_p.add_argument("--format", choices=["text", "json"], default="text")
+    transcript_p.set_defaults(func=cmd_transcript)
 
     # -- status --
     status_p = subparsers.add_parser(

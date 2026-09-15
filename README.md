@@ -19,6 +19,27 @@ Two agents are included for querying session data:
 - **`graph-analyst`** — primary entry point. Queries the context-intelligence property graph using Cypher, resolves `ci-blob://` URIs, and automatically delegates to `session-navigator` when the graph server is unreachable or returns 0 sessions.
 - **`session-navigator`** — local fallback agent. Navigates session data via flat JSONL files using safe `bash`/`jq`/`grep` extraction patterns when the server is unavailable. Invoked only by `graph-analyst` via the delegation chain — external callers should use `graph-analyst` as the entry point.
 
+### Transcript recall
+
+The `context-intelligence-navigation` behavior and the standalone
+`context-intelligence-transcript` behavior mount a user-invocable `/transcript` skill
+and the `session_transcript` tool. With no arguments, `/transcript` replays the current
+session's native user/assistant capture. Pass an intent to use that transcript as source
+material, or pass `--session ID[,ID...]` to target other session captures. The reader
+preserves stored message strings, paginates only between messages, and does not call the
+graph or parse provider-raw payloads. Other hosts can provide their own capture resolver;
+the reusable library itself takes explicit event and metadata paths. Stored captures are
+replayed verbatim and can contain sensitive content; the logging hook's JSON sanitization
+is not redaction.
+
+For scripts outside an active Amplifier session, pass one or more capture directories:
+
+```bash
+python scripts/context-intelligence.py transcript \
+  --session-dir /host-specific/captures/SESSION/context-intelligence \
+  --max-messages 50 --format text
+```
+
 A **`/context-intelligence` mode** is also included for building new context intelligence-aware tooling. Activate it to enter a design workspace where you can investigate session data, explore the graph model, and produce reusable Amplifier components (skills, agents, context files, recipes, CLIs) for your project.
 
 ### Composition — pick the layer you need
@@ -28,7 +49,7 @@ The bundle ships as **composable layered behaviors** rather than one monolith. R
 | Behavior | Adds | Use when |
 |----------|------|----------|
 | `context-intelligence-logging` | the telemetry hook only (event capture + optional server fan-out) | you want **pure session telemetry/logging** — no agents, tools, skills, or mode |
-| `context-intelligence-navigation` (Layer 1) | `session-navigator` (reads raw JSONL on disk; no graph server) | local/offline navigation fallback only |
+| `context-intelligence-navigation` (Layer 1) | `session-navigator`, `session_transcript`, and `/transcript` (no graph server) | native transcript recall and local/offline navigation |
 | `context-intelligence-analysis` (Layer 2) | `graph-analyst` + graph/query skills + the query tools (⊃ navigation) | graph read/query/exploration, no design mode |
 | `context-intelligence-design` (Layer 3) | the `/context-intelligence` design mode (⊃ analysis) | full read/query **plus** the tooling-design workflow |
 | `context-intelligence` (umbrella) | `design` **+** `logging` together | the full drop-in: read/query/design **and** session instrumentation |
@@ -657,7 +678,7 @@ See [`context/graph-model-reference.md`](context/graph-model-reference.md) for t
 | Agent | Available | Tools | Role |
 |-------|-----------|-------|------|
 | `graph-analyst` | Always | `graph_query`, `blob_read`, `tool-filesystem`, `tool-bash`, `tool-skills` | Primary entry point — graph-powered analysis via Cypher across all three data layers, blob resolution, automatic fallback |
-| `session-navigator` | Always (via delegation) | `tool-filesystem`, `tool-search`, `tool-bash`, `tool-skills` | Local fallback — safe JSONL navigation via bash/jq/grep; invoked by graph-analyst when the server is unreachable |
+| `session-navigator` | Always (via delegation) | `session_transcript`, `tool-filesystem`, `tool-search`, `tool-bash`, `tool-skills` | Native transcript owner and local fallback — bounded transcript replay and safe JSONL navigation; invoked by graph-analyst |
 | `context-intelligence-design-facilitator` | `/context-intelligence` mode only | `tool-skills` | Design guide — domain elicitation and component design facilitation for building new context intelligence-aware tooling |
 
 **Delegation chain:** External callers always invoke `graph-analyst`. If the server is unreachable or the workspace contains 0 sessions, it delegates to `session-navigator`, which navigates local JSONL files using safe extraction patterns. `session-navigator` is never invoked directly.
@@ -719,7 +740,7 @@ amplifier-bundle-context-intelligence/
 ├── bundle.md                           ← root bundle definition
 ├── bundle.dot / bundle.png             ← generated bundle structure diagram
 ├── behaviors/                          ← composable layered behaviors (compose what you need)
-│   ├── context-intelligence-navigation.yaml  ← Layer 1: session-navigator only
+│   ├── context-intelligence-navigation.yaml  ← Layer 1: session-navigator + transcript recall
 │   ├── context-intelligence-analysis.yaml    ← Layer 2: + graph-analyst + query tools (⊃ navigation)
 │   ├── context-intelligence-design.yaml      ← Layer 3: + design mode (⊃ analysis)
 │   ├── context-intelligence-logging.yaml     ← orthogonal: telemetry hook only
@@ -743,10 +764,11 @@ amplifier-bundle-context-intelligence/
 │   └── jsonl-event-schema.md               ← events.jsonl schema contract
 ├── modules/
 │   ├── hook-context-intelligence/      ← the Python hook module — PURE TELEMETRY
-│   ├── tool-context-intelligence-query/ ← graph_query + blob_read tools
+│   ├── tool-context-intelligence-query/ ← graph_query + blob_read + whoami tools
 │   │   └── amplifier_module_tool_context_intelligence_query/
 │   │       ├── graph_query_tool.py     ← Cypher query tool
 │   │       └── blob_read_tool.py       ← ci-blob:// resolution tool
+│   ├── tool-context-intelligence-transcript/ ← session_transcript tool
 │   └── tool-context-intelligence-upload/ ← standalone CLI, not an in-session tool — see its README to install
 ├── docs/
 │   ├── context-intelligence-exploration-guide.md   ← what to explore and how to test

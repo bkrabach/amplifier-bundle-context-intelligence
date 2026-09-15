@@ -24,6 +24,16 @@ from context_intelligence.config import (
     SETTINGS_PATH,
     resolve_config,
 )
+from context_intelligence.native_transcript import (
+    CaptureLocator,
+    NativeTranscriptError,
+    TranscriptIssue,
+    TranscriptMessage,
+    TranscriptPage,
+    TranscriptRequest,
+    read_native_transcript,
+    render_native_transcript,
+)
 from context_intelligence.reconstruct import (
     DiskScanResult,
     build_disk_only_metadata,
@@ -42,6 +52,14 @@ __all__ = [
     "LOG_SCHEMA",
     "AMPLIFIER_DIR",
     "SETTINGS_PATH",
+    "CaptureLocator",
+    "NativeTranscriptError",
+    "TranscriptIssue",
+    "TranscriptMessage",
+    "TranscriptPage",
+    "TranscriptRequest",
+    "read_native_transcript",
+    "render_native_transcript",
     "extract_events",
     "extract_transcript",
     "extract_metadata",

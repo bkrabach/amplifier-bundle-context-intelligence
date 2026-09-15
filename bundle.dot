@@ -9,7 +9,7 @@ digraph context_intelligence {
     nodesep=0.6
     ranksep=0.7
     bgcolor="white"
-    source_hash="3fb54cded848d61b162e4fffa3c7445239361e2ed7d48abca8c1814a0fe49afd"
+    source_hash="22df839a3f01c6690ee7bbe3d3ee1e24930998da3b5fd81d15e635539722bb16"
 
     node [fontname="Helvetica", fontsize=11, style="filled,rounded"]
     edge [fontname="Helvetica", fontsize=9]
@@ -22,11 +22,12 @@ digraph context_intelligence {
         fillcolor="#f9f9f9"
         color="#999999"
 
-        beh_context_intelligence_analysis_behavior [label="Analyze Past Sessions\n1 tools\n~974 tok", shape=box, fillcolor="#e0f2f1", style="filled,rounded"]
+        beh_context_intelligence_analysis_behavior [label="Analyze Past Sessions\n1 tools\n~359 tok", shape=box, fillcolor="#e0f2f1", style="filled,rounded"]
         beh_context_intelligence_design_behavior [label="Design New Query Tools\n1 tools\n~331 tok", shape=box, fillcolor="#e0f2f1", style="filled,rounded"]
-        beh_context_intelligence_logging_behavior [label="Record Session Activity\n1 tools\n~1656 tok", shape=box, fillcolor="#e0f2f1", style="filled,rounded"]
-        beh_context_intelligence_navigation_behavior [label="Browse & Search History\n2 tools\n~878 tok", shape=box, fillcolor="#e0f2f1", style="filled,rounded"]
-        beh_context_intelligence_behavior [label="Core Bundle Wiring\n~236 tok", shape=box, fillcolor="#e0f2f1", style="filled,rounded"]
+        beh_context_intelligence_logging_behavior [label="Record Session Activity\n2 tools\n~1761 tok", shape=box, fillcolor="#e0f2f1", style="filled,rounded"]
+        beh_context_intelligence_navigation_behavior [label="Browse & Search History\n3 tools\n~905 tok", shape=box, fillcolor="#e0f2f1", style="filled,rounded"]
+        beh_context_intelligence_transcript_behavior [label="Native Transcript Recall\n2 tools\n~215 tok", shape=box, fillcolor="#e0f2f1", style="filled,rounded"]
+        beh_context_intelligence_behavior [label="Core Bundle Wiring\n~249 tok", shape=box, fillcolor="#e0f2f1", style="filled,rounded"]
     }
 
     subgraph cluster_agents {
@@ -35,11 +36,11 @@ digraph context_intelligence {
         fillcolor="#f9f9f9"
         color="#999999"
 
-        agt_context_intelligence_design_facilitator [label="Design Conversation Guide\n~187 tok desc", shape=box, fillcolor="#c8e6c9", style="filled,rounded"]
-        agt_context_intelligence_tool_designer [label="Query Tool Builder\n~198 tok desc", shape=box, fillcolor="#c8e6c9", style="filled,rounded"]
-        agt_graph_analyst [label="History Graph Analyst\n~191 tok desc", shape=box, fillcolor="#c8e6c9", style="filled,rounded"]
+        agt_context_intelligence_design_facilitator [label="Design Conversation Guide\n~149 tok desc", shape=box, fillcolor="#c8e6c9", style="filled,rounded"]
+        agt_context_intelligence_tool_designer [label="Query Tool Builder\n~149 tok desc", shape=box, fillcolor="#c8e6c9", style="filled,rounded"]
+        agt_graph_analyst [label="History Graph Analyst\n~131 tok desc", shape=box, fillcolor="#c8e6c9", style="filled,rounded"]
         agt_server_data_ops [label="Stored Data Caretaker\n~270 tok desc", shape=box, fillcolor="#c8e6c9", style="filled,rounded"]
-        agt_session_navigator [label="Local Session Browser\n~157 tok desc", shape=box, fillcolor="#c8e6c9", style="filled,rounded"]
+        agt_session_navigator [label="Local Session Browser\n~143 tok desc", shape=box, fillcolor="#c8e6c9", style="filled,rounded"]
     }
 
     subgraph cluster_modules {
@@ -51,6 +52,8 @@ digraph context_intelligence {
         mod_hook_context_intelligence [label="Activity Recorder\nhook-context-intelligence", shape=box, fillcolor="#bbdefb", style="filled,rounded"]
         mod_hook_server_data_ops_lockdown [label="Data Safety Guard\nhook-server-data-ops-lockdown", shape=box, fillcolor="#bbdefb", style="filled,rounded"]
         mod_tool_context_intelligence_query [label="History Search\ntool-context-intelligence-query", shape=box, fillcolor="#bbdefb", style="filled,rounded"]
+        mod_tool_context_intelligence_set_filters [label="Live Ingestion Filter Updates\ntool-context-intelligence-set-filters", shape=box, fillcolor="#bbdefb", style="filled,rounded"]
+        mod_tool_context_intelligence_transcript [label="Native Transcript Retrieval\ntool-context-intelligence-transcript", shape=box, fillcolor="#bbdefb", style="filled,rounded"]
         mod_tool_context_intelligence_upload [label="History Upload\ntool-context-intelligence-upload", shape=box, fillcolor="#bbdefb", style="filled,rounded"]
         mod_tool_server_data_ops [label="Stored Data Management\ntool-server-data-ops", shape=box, fillcolor="#bbdefb", style="filled,rounded"]
     }
@@ -80,11 +83,16 @@ digraph context_intelligence {
 
     root_context_intelligence -> ext_githttps___github_com_microsoft_amplifier_foundation_main [style=dashed]
     root_context_intelligence -> beh_context_intelligence_behavior [label="composes"]
-    beh_context_intelligence_analysis_behavior -> agt_graph_analyst [label="owns"]
-    beh_context_intelligence_analysis_behavior -> agt_session_navigator [label="owns"]
-    beh_context_intelligence_analysis_behavior -> agt_server_data_ops [label="owns"]
+    beh_context_intelligence_behavior -> beh_context_intelligence_design_behavior [label="includes", penwidth=0.8]
+    beh_context_intelligence_behavior -> beh_context_intelligence_logging_behavior [label="includes", penwidth=0.8]
+    beh_context_intelligence_design_behavior -> beh_context_intelligence_analysis_behavior [label="includes", penwidth=0.8]
+    beh_context_intelligence_analysis_behavior -> beh_context_intelligence_navigation_behavior [label="includes", penwidth=0.8]
+    beh_context_intelligence_logging_behavior -> mod_tool_context_intelligence_set_filters [label="uses", penwidth=0.8]
     beh_context_intelligence_logging_behavior -> mod_hook_context_intelligence [label="uses", penwidth=0.8]
     beh_context_intelligence_navigation_behavior -> agt_graph_analyst [label="owns"]
     beh_context_intelligence_navigation_behavior -> agt_session_navigator [label="owns"]
     beh_context_intelligence_navigation_behavior -> agt_server_data_ops [label="owns"]
+    beh_context_intelligence_navigation_behavior -> mod_tool_context_intelligence_transcript [label="uses", penwidth=0.8]
+    beh_context_intelligence_transcript_behavior -> beh_context_intelligence_logging_behavior [label="includes", penwidth=0.8]
+    beh_context_intelligence_transcript_behavior -> mod_tool_context_intelligence_transcript [label="uses", penwidth=0.8]
 }

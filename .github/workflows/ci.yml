@@ -84,6 +84,7 @@ jobs:
           - hook-server-data-ops-lockdown
           - tool-context-intelligence-query
           - tool-context-intelligence-recover
+          - tool-context-intelligence-transcript
           - tool-context-intelligence-upload
           - tool-server-data-ops
     steps:

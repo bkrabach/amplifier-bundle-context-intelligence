@@ -531,6 +531,16 @@ Emitted by the Orchestrator when a user prompt is submitted for processing.
 
 ---
 
+### `prompt:complete`
+
+Emitted by the Orchestrator after the submitted prompt completes. For native transcript
+retrieval, `data.response` is the provider-neutral, complete assistant response string.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `prompt` | string | The submitted user prompt text |
+| `response` | string | The complete assistant response text |
+
 ### `tool:pre`
 
 Emitted by the Orchestrator before tool execution. Carries identifying keys needed to correlate with `tool:post`.
