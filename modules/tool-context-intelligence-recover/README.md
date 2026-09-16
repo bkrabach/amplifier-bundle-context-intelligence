@@ -1,7 +1,9 @@
 # context-intelligence-recover
 
 `context-intelligence-recover` is a dedicated, durable recovery command for
-native Context Intelligence captures. It reads only:
+native Context Intelligence captures. Version 0.2 uses a compact V2
+checkpoint: one artifact row and one cursor per current destination, never an
+event payload or per-event delivery row. It reads only:
 
 ```text
 <root>/<project>/sessions/<session>/context-intelligence/events.jsonl
@@ -35,11 +37,38 @@ capability; a target without it remains blocked and is never sent through an
 ordinary event endpoint.
 
 By default, checkpoints are private SQLite files under
-`~/.local/state/context-intelligence/recovery/<job-id>/`. Use `--job-id` to
-resume the same job or `--state-dir` to place the checkpoint elsewhere.
+`~/.local/state/context-intelligence/recovery/<job-id>/`. A job records facts
+only in `<state-dir>/<job-id>.v2.sqlite3`; a private lock sidecar coordinates
+runners. It never opens, migrates, removes, or changes an existing V1
+`<job-id>.sqlite3`. The local JSON summary reports `legacy_checkpoint_present`
+when that V1 file exists.
+
+The checkpoint stores only source/metadata hashes and stat facts, record count,
+native artifact facts, and compact source cursors (ordinal and byte offset).
+Unchanged artifacts use their durable stat-and-hash snapshot; delivery reads
+only the next bounded (16 MiB maximum) line through a verified descriptor. A
+source or metadata stat change triggers one full rehash before delivery and
+quarantines the artifact on mismatch. Event bodies are never persisted in the
+checkpoint, and source paths are never sent to a target or emitted in local
+summaries.
+Use `--job-id` to resume the same job or `--state-dir` to place the checkpoint
+elsewhere.
 `--once` returns nonzero whenever deferred, blocked, or quarantined work
 remains. `--watch` honors `Retry-After` before retrying and re-reads
 configuration on each cycle.
 
 `--dry-run` (also `--plan`) inventories and evaluates routing without issuing
-any HTTP requests. Source artifacts are never modified or deleted.
+any HTTP requests. Recovery scans only exact
+`<project>/sessions/<session>/context-intelligence/events.jsonl` candidates,
+streams them one binary line at a time, and retains invalid or unsafe captures
+as explicit deferred/quarantined inventory states. Source artifacts are never
+modified or deleted.
+
+Each runner cycle submits at most one source record to a logical configured
+destination. Logical destinations remain independent even if they share an
+endpoint URL. A `202`
+(including a duplicate acknowledgement) advances only that target's cursor.
+Lost acknowledgements leave it unchanged, while `429` and transient `5xx`
+responses defer the target. Authentication, missing capability, and unsupported
+target responses block it; invalid/conflicting recovery responses quarantine the
+current cursor while all other cursor state remains durable.

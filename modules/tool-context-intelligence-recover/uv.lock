@@ -41,7 +41,7 @@ dev = [
 
 [[package]]
 name = "amplifier-module-tool-context-intelligence-recover"
-version = "0.1.0"
+version = "0.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "amplifier-bundle-context-intelligence" },
