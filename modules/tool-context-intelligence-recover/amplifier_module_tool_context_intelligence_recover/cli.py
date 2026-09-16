@@ -44,12 +44,23 @@ def main(argv: list[str] | None = None) -> None:
     )
     runner = RecoveryRunner(state_dir=state_dir, job_id=job_id)
     try:
+        next_refresh_at = 0.0
         while True:
-            summary = runner.run(args.path, dry_run=args.dry_run)
+            now = time.monotonic()
+            refresh = now >= next_refresh_at
+            summary = runner.run(args.path, dry_run=args.dry_run, refresh=refresh)
             print(json.dumps(summary.to_dict(), sort_keys=True))
             if not args.watch or not summary.pending or args.dry_run:
                 raise SystemExit(1 if summary.pending else 0)
-            time.sleep(max(0.1, summary.retry_after_s or 1.0))
+            if refresh:
+                next_refresh_at = time.monotonic() + 300.0
+            if summary.delivered:
+                continue
+            # Retry deferrals are respected. When no source record advanced,
+            # pause only until the next due retry or mandatory plan refresh.
+            until_refresh = max(0.0, next_refresh_at - time.monotonic())
+            delay = summary.retry_after_s if summary.retry_after_s is not None else until_refresh
+            time.sleep(max(0.1, min(until_refresh, delay)))
     finally:
         runner.close()
 
