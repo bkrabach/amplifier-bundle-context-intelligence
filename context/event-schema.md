@@ -56,13 +56,17 @@ Fields `status`, `duration_ms`, `module`, `component`, `error`, `request_id`, `s
 
 ### Infrastructure-Injected Fields
 
-Every event automatically receives these fields from the HookRegistry, regardless of what the emitter provides:
+At session creation, the session setup registers `session_id` and `parent_id` as HookRegistry defaults. At emit time, those defaults fill fields that the payload does not supply. The current registry merges explicit event data over defaults, so an explicit payload value for either field takes precedence. `timestamp` is different: `emit()` stamps it after that merge and overwrites any payload value.
 
 | Field | Source | Notes |
 |-------|--------|-------|
-| `session_id` | `set_default_fields()` at session creation | Always present in `data`. Cannot be overridden by emitters. |
-| `parent_id` | `set_default_fields()` at session creation | Always present in `data` (empty string for root sessions). |
-| `timestamp` | `emit()` itself | UTC ISO-8601. Infrastructure-owned. Also promoted to top-level `timestamp` key. |
+| `session_id` | `set_default_fields()` at session creation | Defaulted into `data` when absent. An explicit payload `session_id` overrides that default in the current registry. Producers must reserve this generic field for the captured/emitting session identity; put worker, subject, or other referenced session IDs in separately named fields. |
+| `parent_id` | `set_default_fields()` at session creation | Defaulted into `data` when absent (empty string for root sessions). An explicit payload `parent_id` also takes precedence. |
+| `timestamp` | `emit()` itself | UTC ISO-8601 stamped after defaults and payload data are merged. Infrastructure-owned: callers cannot omit or override it. Also promoted to top-level `timestamp` key. |
+
+**CI handling.** The Context Intelligence `LoggingHandler` sanitizes and consumes the resulting `data.session_id`: it selects the local session directory and metadata record from that value, then forwards the same resulting data to active dispatchers. It does not recover a coordinator/emitter identity from another source or enforce `session_id` immutability.
+
+This section describes observed current HookRegistry and CI-handler mechanics, not an immutability contract or a change to capture behavior.
 
 ### The `raw` Field
 
@@ -446,7 +450,7 @@ When you need to extract specific fields from provider events:
 
 ## Part 8: Per-Event Field Reference
 
-Per-event `data` payload fields for the 18 events most commonly queried by context-intelligence tooling. All events automatically receive the [infrastructure-injected fields](#infrastructure-injected-fields) (`session_id`, `parent_id`, `timestamp`) — those are not repeated below.
+Per-event `data` payload fields for the 18 events most commonly queried by context-intelligence tooling. All events pass through the [infrastructure-injected field](#infrastructure-injected-fields) processing (`session_id` and `parent_id` defaults; an infrastructure-stamped `timestamp`) — those are not repeated below.
 
 > **Phantom-event note:** Several entries here document event names that appear in older documentation but do **not** exist in `amplifier-core/events.rs`. They are included for completeness and cross-reference; each section notes the correct canonical name.
 
