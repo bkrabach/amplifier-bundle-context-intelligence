@@ -8,6 +8,8 @@ import stat
 import subprocess
 from pathlib import Path
 
+import pytest
+
 REPO_ROOT = Path(__file__).parent.parent
 SCRIPT_PATH = REPO_ROOT / "scripts" / "validate-full.sh"
 CLI_REF = "4d168ed822314dced895c8cf7fdbb24233cbe31b"
@@ -74,10 +76,12 @@ fi
     )
 
 
-def _create_recipe(home: Path) -> None:
-    recipe = home / ".amplifier" / "cache" / "amplifier-foundation-test" / "recipes"
+def _create_recipe(home: Path, revision: str = "test") -> Path:
+    recipe = home / ".amplifier" / "cache" / f"amplifier-foundation-{revision}" / "recipes"
     recipe.mkdir(parents=True)
-    (recipe / "validate-bundle-repo.yaml").write_text("name: validate-bundle-repo\n")
+    recipe_path = recipe / "validate-bundle-repo.yaml"
+    recipe_path.write_text("name: validate-bundle-repo\n")
+    return recipe_path
 
 
 def _environment(
@@ -121,6 +125,7 @@ exit 97
         }
     )
     environment.pop("AMPLIFIER_HOME", None)
+    environment.pop("CI_VALIDATE_RECIPE", None)
     if caller_amplifier_home is not None:
         environment["AMPLIFIER_HOME"] = caller_amplifier_home
     if omit_private_cli:
@@ -175,6 +180,11 @@ def test_launches_pinned_private_cli_and_preserves_paths_with_spaces(tmp_path: P
     )
 
     cli_args = Path(environment["FAKE_CLI_ARGS"]).read_text().splitlines()
+    expected_recipe = (
+        Path(environment["HOME"])
+        / ".amplifier/cache/amplifier-foundation-test/recipes/validate-bundle-repo.yaml"
+    )
+    assert f"recipe_path={expected_recipe}" in cli_args
     context = next(argument for argument in cli_args if argument.startswith("context="))
     assert json.loads(context.removeprefix("context=")) == {"repo_path": str(repo_path)}
     assert Path(environment["FAKE_JSON_INPUT"]).read_text().strip() == str(repo_path)
@@ -280,3 +290,90 @@ def test_fails_without_private_cli_instead_of_falling_back_to_host(tmp_path: Pat
     assert result.returncode != 0
     assert "did not install an executable amplifier CLI" in result.stderr
     assert not Path(environment["FAKE_HOST_CLI_SENTINEL"]).exists()
+
+
+@pytest.mark.parametrize("recipe_count", [0, 2])
+def test_requires_unambiguous_recipe_before_any_install(tmp_path: Path, recipe_count: int) -> None:
+    environment = _environment(tmp_path)
+    home = Path(environment["HOME"])
+    if recipe_count == 0:
+        (
+            home / ".amplifier/cache/amplifier-foundation-test/recipes/validate-bundle-repo.yaml"
+        ).unlink()
+    else:
+        _create_recipe(home, "another")
+    repo_path = tmp_path / "target repo"
+
+    result = subprocess.run(
+        [str(SCRIPT_PATH), str(repo_path)],
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "CI_VALIDATE_RECIPE" in result.stderr
+    assert ("no cached" if recipe_count == 0 else "multiple cached") in result.stderr
+    assert not repo_path.exists()
+    assert not Path(environment["FAKE_UV_ARGS"]).exists()
+    assert not Path(environment["FAKE_CLI_PATH"]).exists()
+    assert not Path(environment["FAKE_HOST_CLI_SENTINEL"]).exists()
+
+
+@pytest.mark.parametrize("cached_recipe_count", [0, 2])
+def test_explicit_recipe_bypasses_cache_ambiguity(tmp_path: Path, cached_recipe_count: int) -> None:
+    environment = _environment(tmp_path)
+    home = Path(environment["HOME"])
+    if cached_recipe_count == 0:
+        (
+            home / ".amplifier/cache/amplifier-foundation-test/recipes/validate-bundle-repo.yaml"
+        ).unlink()
+    else:
+        _create_recipe(home, "another")
+    recipe = tmp_path / "chosen recipe with spaces.yaml"
+    recipe.write_text("name: explicit-validator\n")
+    environment["CI_VALIDATE_RECIPE"] = str(recipe)
+    environment["CI_VALIDATE_VENV"] = str(tmp_path / "private venv")
+    environment["FAKE_JSON_CONTEXT"] = json.dumps({"repo_path": str(REPO_ROOT)})
+
+    result = subprocess.run(
+        [str(SCRIPT_PATH)],
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert f">> recipe: {recipe}" in result.stdout
+    cli_args = Path(environment["FAKE_CLI_ARGS"]).read_text().splitlines()
+    assert f"recipe_path={recipe}" in cli_args
+    assert not Path(environment["FAKE_HOST_CLI_SENTINEL"]).exists()
+
+
+@pytest.mark.parametrize("kind", ["missing", "directory"])
+def test_invalid_explicit_recipe_never_falls_back(tmp_path: Path, kind: str) -> None:
+    environment = _environment(tmp_path)
+    recipe = tmp_path / "invalid recipe.yaml"
+    if kind == "directory":
+        recipe.mkdir()
+    environment["CI_VALIDATE_RECIPE"] = str(recipe)
+    repo_path = tmp_path / "target repo"
+
+    result = subprocess.run(
+        [str(SCRIPT_PATH), str(repo_path)],
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "not a readable file" in result.stderr
+    assert not repo_path.exists()
+    assert not Path(environment["FAKE_UV_ARGS"]).exists()
+    assert not Path(environment["FAKE_CLI_PATH"]).exists()

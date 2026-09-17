@@ -48,6 +48,11 @@ It preserves the caller's Amplifier settings identity, including `AMPLIFIER_HOME
 The default location is a unique, removed-on-exit directory under
 `<REPO_PATH>/.amplifier/validation/`; set `CI_VALIDATE_VENV` only to a **new** path, because an
 existing path is refused rather than modified.
+Recipe selection is also explicit: one cached Foundation validator is selected
+automatically; zero or multiple matches stop before any installation. Set
+`CI_VALIDATE_RECIPE` to a readable recipe file to choose deliberately, including
+when the desired recipe is outside the default `~/.amplifier/cache/` location.
+The selected path is printed; this choice does not update settings or caches.
 
 The wrapper is a launch/dependency helper, not the full-validator verdict gate. It propagates the
 `amplifier tool invoke` exit status unchanged; process exit `0` does **not** mean validation PASS.

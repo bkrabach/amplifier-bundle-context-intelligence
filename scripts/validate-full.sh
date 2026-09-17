@@ -36,14 +36,42 @@
 #   CI_VALIDATE_VENV   set a new venv location. The path must not already exist.
 #                      By default, a unique throwaway venv is created beneath
 #                      <REPO_PATH>/.amplifier/validation/ and removed on exit.
+#   CI_VALIDATE_RECIPE explicit readable recipe file; otherwise exactly one
+#                      cached Foundation validator must exist. Ambiguity fails
+#                      before environment creation or dependency installation.
 #
-# Requires: uv, network access to install the pinned private CLI, and the
-# amplifier-foundation bundle present in ~/.amplifier/cache (it ships the recipe).
+# Requires: uv and network access to install the pinned private CLI. When
+# CI_VALIDATE_RECIPE is unset, exactly one Foundation validator must be present
+# in ~/.amplifier/cache.
 #
 set -euo pipefail
 
 REPO_PATH="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 CLI_REF="4d168ed822314dced895c8cf7fdbb24233cbe31b"
+
+# Select before installing: never guess between cached recipe revisions.
+# The caller may choose a file explicitly without changing settings or caches.
+if [[ -n "${CI_VALIDATE_RECIPE:-}" ]]; then
+  RECIPE="$CI_VALIDATE_RECIPE"
+else
+  shopt -s nullglob
+  recipes=("${HOME}/.amplifier/cache/"amplifier-foundation-*/recipes/validate-bundle-repo.yaml)
+  shopt -u nullglob
+  if [[ ${#recipes[@]} -eq 0 ]]; then
+    echo "!! no cached Foundation validator; set CI_VALIDATE_RECIPE to its recipe file" >&2
+    exit 1
+  fi
+  if [[ ${#recipes[@]} -ne 1 ]]; then
+    echo "!! multiple cached Foundation validators; select one with CI_VALIDATE_RECIPE" >&2
+    printf '   %s\n' "${recipes[@]}" >&2
+    exit 1
+  fi
+  RECIPE="${recipes[0]}"
+fi
+if [[ ! -f "$RECIPE" || ! -r "$RECIPE" ]]; then
+  echo "!! validation recipe is not a readable file: $RECIPE" >&2
+  exit 1
+fi
 
 if [[ -n "${CI_VALIDATE_VENV:-}" ]]; then
   VENV="$CI_VALIDATE_VENV"
@@ -75,16 +103,6 @@ if ! PYTHONNOUSERSITE=1 "$VENV/bin/python" -c 'import pip, hatchling, amplifier_
 fi
 if [[ ! -x "$VENV/bin/amplifier" ]]; then
   echo "!! private validation venv did not install an executable amplifier CLI" >&2
-  exit 1
-fi
-
-# Locate the foundation validate-bundle-repo recipe in the Amplifier cache.
-# (The bare `amplifier tool invoke` CLI does not resolve the `foundation:` recipe
-#  namespace, so we pass the cached recipe by absolute path.)
-RECIPE="$(ls -1 "${HOME}/.amplifier/cache/"amplifier-foundation-*/recipes/validate-bundle-repo.yaml 2>/dev/null | head -1 || true)"
-if [[ -z "$RECIPE" ]]; then
-  echo "!! validate-bundle-repo.yaml not found under ~/.amplifier/cache/amplifier-foundation-*/recipes/" >&2
-  echo "   Ensure the amplifier-foundation bundle is installed/cached, then retry." >&2
   exit 1
 fi
 
