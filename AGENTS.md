@@ -21,7 +21,7 @@ invocations — they are:
 The bundle, its on-disk storage subdirectory, its skills, **and** the internal design mode all
 share the name `context-intelligence`. The validator's `/<mode>` + `name="<mode>"` regex cannot
 disambiguate them. The **full-mode** validator (see below) re-reads the source files and itself
-**confirms this as a false positive — overall verdict PASS**.
+**confirms this finding as a false positive**.
 
 **Therefore:** leave `modes/context-intelligence.md` at `advertised: false` (the mode is correctly
 internal), and do **not** remove the path/skill references. The only proper fix, if any, is an
@@ -39,13 +39,22 @@ scripts/validate-full.sh           # validates this repo
 scripts/validate-full.sh <path>    # or another bundle repo
 ```
 
-It builds a throwaway `uv` venv with `hatchling` + `amplifier-foundation` + `amplifier-core` +
-`pyyaml`, puts it first on `PATH`, and runs `validate-bundle-repo` so its `python3` resolves to an
-interpreter that has the deps → `validation_mode: full`.
+It creates a private throwaway `uv` venv with `pip` + `hatchling` + `amplifier-foundation` +
+`amplifier-core` + `pyyaml` and a pinned `amplifier-app-cli`, then invokes that venv's
+`amplifier` executable explicitly. Its `python3` and the CLI's fixed shebang therefore resolve to
+the private interpreter, giving the recipe the dependencies needed to attempt `validation_mode: full`.
+It preserves the caller's Amplifier settings identity, including `AMPLIFIER_HOME` when set.
+The default location is a unique, removed-on-exit directory under
+`<REPO_PATH>/.amplifier/validation/`; set `CI_VALIDATE_VENV` only to a **new** path, because an
+existing path is refused rather than modified.
 
-**Last full run: ✅ PASS** — 10/10 bundles clean, all hygiene/structure/placement/freshness gates
-green, the lone mode "error" confirmed a false positive (name collision). Only the build *dry-run*
-is skipped (no `pip wheel` in the venv); the wheels build cleanly under `uv build`.
+The wrapper is a launch/dependency helper, not the full-validator verdict gate. It propagates the
+`amplifier tool invoke` exit status unchanged; process exit `0` does **not** mean validation PASS.
+User/CI must inspect the published recipe's structured `validation_mode`, `overall_verdict`, and
+`build_tested` fields. Result parsing and the remaining recipe/full-gate behavior are outside this
+interpreter repair. The mode-advertising finding above is a documented false positive, while
+`BUNDLE_DOT_STALE` remains a real residual that must not be suppressed or "repaired" as part of this
+wrapper.
 
 ## Testing & what "done" looks like
 
@@ -55,7 +64,7 @@ Run these before calling anything done:
 uv run pytest          # in modules/tool-context-intelligence-query   (module suite)
 uv run pytest          # in the repo root                             (tests/, top-level suite)
 uv run ruff check . && uv run ruff format --check . && uv run pyright
-scripts/validate-full.sh   # → validation_mode: full, overall PASS
+scripts/validate-full.sh   # then inspect published validation_mode, overall_verdict, and build_tested
 ```
 
 **Green unit tests are the FLOOR, not proof of done.** This bundle wires **skills, modes,
