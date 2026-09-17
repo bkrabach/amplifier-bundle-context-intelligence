@@ -67,8 +67,6 @@ echo ">> building deps venv: $VENV"
 uv venv --python 3.11 --allow-existing "$VENV" >/dev/null
 uv pip install --python "$VENV/bin/python" --quiet \
   pip hatchling pyyaml \
-  "amplifier-core @ git+https://github.com/microsoft/amplifier-core@main" \
-  "amplifier-foundation @ git+https://github.com/microsoft/amplifier-foundation@main" \
   "amplifier-app-cli @ git+https://github.com/microsoft/amplifier-app-cli@$CLI_REF"
 
 if ! PYTHONNOUSERSITE=1 "$VENV/bin/python" -c 'import pip, hatchling, amplifier_foundation'; then

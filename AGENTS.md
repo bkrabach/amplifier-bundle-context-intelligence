@@ -39,8 +39,9 @@ scripts/validate-full.sh           # validates this repo
 scripts/validate-full.sh <path>    # or another bundle repo
 ```
 
-It creates a private throwaway `uv` venv with `pip` + `hatchling` + `amplifier-foundation` +
-`amplifier-core` + `pyyaml` and a pinned `amplifier-app-cli`, then invokes that venv's
+It creates a private throwaway `uv` venv with `pip`, `hatchling`, `pyyaml`, and a pinned
+`amplifier-app-cli`. Core and Foundation come from that CLI's dependency closure rather
+than duplicate direct Git requirements. It then invokes that venv's
 `amplifier` executable explicitly. Its `python3` and the CLI's fixed shebang therefore resolve to
 the private interpreter, giving the recipe the dependencies needed to attempt `validation_mode: full`.
 It preserves the caller's Amplifier settings identity, including `AMPLIFIER_HOME` when set.

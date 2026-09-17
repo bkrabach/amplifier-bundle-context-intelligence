@@ -164,6 +164,11 @@ def test_launches_pinned_private_cli_and_preserves_paths_with_spaces(tmp_path: P
     assert str(venv_path / "bin" / "python") in python_targets
     assert "pip" in uv_args
     assert "hatchling" in uv_args
+    # The CLI supplies Core/Foundation through its own dependency closure.
+    # Repeating Foundation as a direct Git requirement conflicts with its
+    # tool.uv.sources mapping during a real install.
+    assert not any(arg.startswith("amplifier-foundation @") for arg in uv_args)
+    assert not any(arg.startswith("amplifier-core @") for arg in uv_args)
     assert (
         f"amplifier-app-cli @ git+https://github.com/microsoft/amplifier-app-cli@{CLI_REF}"
         in uv_args
